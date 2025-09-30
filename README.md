@@ -38,6 +38,13 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 - **Workload Identity Federation**: Uses OIDC/JWT tokens from GCP metadata server to assume AWS role (no credentials required)
 - **S3 Target Bucket**: Final destination for compressed log files with versioning and encryption
 
+## Features
+
+- **Flexible S3 Configuration**: Create a new S3 bucket with a custom name, use an existing bucket, or let Terraform auto-generate a bucket name
+- **Scanner Integration**: Optional configuration to automatically set up S3 notifications and IAM policies for security scanner integration
+- **Efficient Compression**: Automatically handles gzip compression for log files during transfer
+- **Automatic Cleanup**: Retry mechanism for failed transfers via scheduled Cloud Function
+
 ## Prerequisites
 
 - Terraform >= 1.0
@@ -51,9 +58,33 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 
 ### 1. Configure Variables
 
-Create a `terraform.tfvars` file.
+Copy `terraform.tfvars.example` to `terraform.tfvars` and modify:
 
-Copy `terraform.tfvars.example` to `terraform.tfvars` and modify.
+```bash
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your configuration
+```
+
+#### Key Configuration Options
+
+**Required:**
+- `project_id`: Your GCP project ID
+- `aws_account_id`: Your AWS account ID
+
+**S3 Bucket Options (choose one):**
+- `s3_bucket_name`: Create a new bucket with a custom name (e.g., `"mycompany-gcp-audit-logs"`)
+- `existing_s3_bucket_name`: Use an existing S3 bucket (must also set `log_prefix`)
+- Neither: Auto-generates bucket name as `logging-s3-target-{account_id}-{random_suffix}`
+
+**Scanner Integration (optional):**
+- `scanner_sns_topic_arn`: SNS topic ARN for S3 event notifications
+- `scanner_role_arn`: IAM role ARN to grant S3 read permissions
+- Both must be specified together to enable scanner integration
+
+**Other Options:**
+- `log_filter`: Filter Cloud Logging entries (empty = all logs, or specify filters for audit logs, specific services, etc.)
+- `log_prefix`: Path prefix for organizing logs in S3 (default: `"logs"`)
+- `force_destroy_buckets`: Set to `true` for testing/dev to allow deleting non-empty buckets (default: `false` for production safety)
 
 ### 2. Initialize Terraform
 
@@ -177,7 +208,7 @@ To remove all resources:
 terraform destroy
 ```
 
-**Note**: Buckets are configured with `force_destroy = true` for easy cleanup. In production, you may want to change this.
+**Note**: By default, S3 buckets are configured with `force_destroy = false` to prevent accidental data loss in production. If you need to destroy non-empty buckets during testing/development, set `force_destroy_buckets = true` in your `terraform.tfvars`.
 
 ## Cost Considerations
 
