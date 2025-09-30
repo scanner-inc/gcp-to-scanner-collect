@@ -52,6 +52,39 @@ variable "age_threshold_minutes" {
   default     = 30
 }
 
+variable "scanner_sns_topic_arn" {
+  description = "Optional SNS topic ARN for S3 object created notifications (requires scanner_role_arn)"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.scanner_sns_topic_arn == "" || can(regex("^arn:aws:sns:[a-z0-9-]+:[0-9]{12}:.+$", var.scanner_sns_topic_arn))
+    error_message = "scanner_sns_topic_arn must be a valid SNS topic ARN or empty string."
+  }
+}
+
+variable "scanner_role_arn" {
+  description = "Optional scanner role ARN to grant S3 read permissions (requires scanner_sns_topic_arn)"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.scanner_role_arn == "" || can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", var.scanner_role_arn))
+    error_message = "scanner_role_arn must be a valid IAM role ARN or empty string."
+  }
+
+  validation {
+    condition     = (var.scanner_sns_topic_arn == "") == (var.scanner_role_arn == "")
+    error_message = "Both scanner_sns_topic_arn and scanner_role_arn must be specified together, or neither should be specified."
+  }
+}
+
+# Validation: both or neither scanner variables must be specified
+locals {
+  scanner_sns_provided  = var.scanner_sns_topic_arn != ""
+  scanner_role_provided = var.scanner_role_arn != ""
+}
+
 variable "log_prefix" {
   description = "Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')"
   type        = string
@@ -62,6 +95,12 @@ variable "aws_profile" {
   description = "AWS CLI profile to use (optional, defaults to default profile)"
   type        = string
   default     = null
+}
+
+variable "force_destroy_buckets" {
+  description = "Allow deletion of non-empty buckets (useful for testing/development)"
+  type        = bool
+  default     = false
 }
 
 # Configure providers
@@ -125,44 +164,51 @@ resource "random_id" "suffix" {
 # Enable required APIs
 resource "google_project_service" "logging" {
   service                    = "logging.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudfunctions" {
   service                    = "cloudfunctions.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudbuild" {
   service                    = "cloudbuild.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "pubsub" {
   service                    = "pubsub.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudrun" {
   service                    = "run.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudscheduler" {
   service                    = "cloudscheduler.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "eventarc" {
   service                    = "eventarc.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 # GCS Bucket for temporary log batching
 resource "google_storage_bucket" "temp_bucket" {
   name          = "logging-temp-${var.project_id}-${random_id.suffix.hex}"
   location      = var.region
-  force_destroy = true
+  force_destroy = var.force_destroy_buckets
 
   uniform_bucket_level_access = true
 
@@ -180,7 +226,7 @@ resource "google_storage_bucket" "temp_bucket" {
 resource "google_storage_bucket" "function_source_bucket" {
   name          = "gcf-source-${var.project_id}-${random_id.suffix.hex}"
   location      = var.region
-  force_destroy = true
+  force_destroy = true # Safe to force destroy - content is versioned in this repo
 }
 
 # Pub/Sub Topic for log sink
@@ -487,7 +533,7 @@ resource "google_cloud_run_service_iam_member" "cleanup_invoker" {
 # S3 Target Bucket
 resource "aws_s3_bucket" "target_bucket" {
   bucket        = "logging-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
-  force_destroy = true
+  force_destroy = var.force_destroy_buckets
 }
 
 # S3 Bucket Versioning
@@ -507,6 +553,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_enc
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
     }
+  }
+}
+
+# S3 Bucket Notification Configuration (optional)
+resource "aws_s3_bucket_notification" "scanner_notification" {
+  count  = local.scanner_sns_provided ? 1 : 0
+  bucket = aws_s3_bucket.target_bucket.id
+
+  topic {
+    topic_arn = var.scanner_sns_topic_arn
+    events    = ["s3:ObjectCreated:*"]
   }
 }
 
@@ -550,6 +607,33 @@ resource "aws_iam_role_policy" "s3_writer_policy" {
           "s3:GetObject",
           "s3:HeadObject",
           "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.target_bucket.arn,
+          "${aws_s3_bucket.target_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+# IAM Policy for Scanner Role to read from S3 (optional)
+resource "aws_iam_role_policy" "scanner_read_policy" {
+  count = local.scanner_role_provided ? 1 : 0
+  name  = "scanner-s3-read-policy-${random_id.suffix.hex}"
+  role  = split("/", var.scanner_role_arn)[1]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketNotification",
+          "s3:GetEncryptionConfiguration",
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:GetObjectTagging"
         ]
         Resource = [
           aws_s3_bucket.target_bucket.arn,
@@ -633,6 +717,6 @@ output "test_instructions" {
      gcloud functions logs read ${google_cloudfunctions2_function.cleanup_function.name} --region=${var.region} --limit=10
 
   Latency: Logs should appear in S3 within 2-3 minutes.
-
+${local.scanner_sns_provided ? "\n  Scanner Integration:\n  You can now link your AWS bucket '${aws_s3_bucket.target_bucket.id}' in the scanner AWS account settings.\n" : ""}
   EOT
 }
