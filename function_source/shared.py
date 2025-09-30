@@ -184,6 +184,13 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
             blob.delete()
             return True
 
+        # Determine content type based on file extension
+        if object_name.endswith('.jsonl') or object_name.endswith('.ndjson'):
+            content_type = 'application/x-ndjson'
+        else:
+            # Fall back to blob's content type or default to octet-stream
+            content_type = blob.content_type or 'application/octet-stream'
+
         # Get content encoding
         gcs_content_encoding = blob.content_encoding
         is_gzipped = gcs_content_encoding == 'gzip' if gcs_content_encoding else False
@@ -200,7 +207,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                     object_name,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
-                        'ContentType': blob.content_type or 'application/octet-stream',
+                        'ContentType': content_type,
                         'Metadata': {
                             'source-bucket': blob.bucket.name,
                             'source-size': str(blob.size),
@@ -223,7 +230,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                     object_name,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
-                        'ContentType': blob.content_type or 'application/octet-stream',
+                        'ContentType': content_type,
                         'Metadata': {
                             'source-bucket': blob.bucket.name,
                             'source-size': str(blob.size),
