@@ -200,7 +200,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                     object_name,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
-                        'ContentType': blob.content_type or 'application/octet-stream',
+                        'ContentType': 'application/x-ndjson',  # JSONL files
                         'Metadata': {
                             'source-bucket': blob.bucket.name,
                             'source-size': str(blob.size),
@@ -223,7 +223,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                     object_name,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
-                        'ContentType': blob.content_type or 'application/octet-stream',
+                        'ContentType': 'application/x-ndjson',  # JSONL files
                         'Metadata': {
                             'source-bucket': blob.bucket.name,
                             'source-size': str(blob.size),

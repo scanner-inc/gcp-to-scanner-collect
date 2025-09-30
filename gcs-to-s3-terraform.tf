@@ -52,6 +52,18 @@ variable "age_threshold_minutes" {
   default     = 30
 }
 
+variable "log_prefix" {
+  description = "Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')"
+  type        = string
+  default     = "logs"
+}
+
+variable "aws_profile" {
+  description = "AWS CLI profile to use (optional, defaults to default profile)"
+  type        = string
+  default     = null
+}
+
 # Configure providers
 provider "google" {
   project = var.project_id
@@ -59,7 +71,48 @@ provider "google" {
 }
 
 provider "aws" {
-  region = var.aws_region
+  region  = var.aws_region
+  profile = var.aws_profile
+}
+
+# Validate GCP project exists and is accessible
+data "google_project" "current" {
+  project_id = var.project_id
+}
+
+# Validate AWS account matches the configured account ID
+data "aws_caller_identity" "current" {}
+
+locals {
+  gcp_project_number = data.google_project.current.number
+
+  # Validate AWS account ID matches
+  aws_account_mismatch_error = data.aws_caller_identity.current.account_id != var.aws_account_id ? file(<<-EOT
+
+    ╔═══════════════════════════════════════════════════════════════════════╗
+    ║                    AWS ACCOUNT ID MISMATCH ERROR                      ║
+    ╚═══════════════════════════════════════════════════════════════════════╝
+
+    Configured in tfvars: ${var.aws_account_id}
+    Active AWS account:   ${data.aws_caller_identity.current.account_id}
+
+    Please either:
+      1. Update aws_account_id in terraform.tfvars to match your active AWS account
+      2. Switch to the correct AWS profile using 'aws_profile' variable
+      3. Set AWS_PROFILE environment variable
+
+  EOT
+  ) : null
+}
+
+# Output useful GCP project info for validation
+output "gcp_project_info" {
+  description = "GCP project information"
+  value = {
+    project_id     = data.google_project.current.project_id
+    project_number = data.google_project.current.number
+    project_name   = data.google_project.current.name
+  }
 }
 
 # Random suffix for unique naming
@@ -158,9 +211,10 @@ resource "google_pubsub_subscription" "log_to_gcs" {
 
   # Push to Cloud Storage
   cloud_storage_config {
-    bucket = google_storage_bucket.temp_bucket.name
-    filename_prefix = "logs/"
-    filename_suffix = ".json"
+    bucket                   = google_storage_bucket.temp_bucket.name
+    filename_prefix          = "${var.log_prefix}/"
+    filename_suffix          = ".jsonl"
+    filename_datetime_format = "YYYY/MM/DD/hh/mm_ssZ_"
 
     # Batch settings for better aggregation
     # Flushes when EITHER condition is met (2 minutes OR 10MB)
