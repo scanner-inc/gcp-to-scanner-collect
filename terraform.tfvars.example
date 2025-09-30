@@ -18,4 +18,16 @@ log_filter = ""
 # Age threshold in minutes for cleanup function to consider files stale
 age_threshold_minutes = 30
 
+# Scanner Integration (Optional)
+# If you want to integrate with a scanner service, specify BOTH variables below.
+# When both are provided:
+#   1. The S3 bucket will send notifications to the SNS topic on s3:ObjectCreated:* events
+#   2. The scanner role will be granted read permissions to the S3 bucket
+#
+# Note: Both variables must be specified together, or neither should be specified.
+# Specifying only one will cause a validation error.
+#
+# scanner_sns_topic_arn = "arn:aws:sns:${var.aws_region}:${var.aws_account_id}:scnr-LogsBucketEventNotificationTopic"
+# scanner_role_arn      = "arn:aws:iam::${var.aws_account_id}:role/scnr-ScannerRole"
+
 # TODO: should we allow the use of existing s3 buckets? (and in that case, also add a prefix within that bucket to dump data?)

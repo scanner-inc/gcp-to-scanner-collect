@@ -52,6 +52,33 @@ variable "age_threshold_minutes" {
   default     = 30
 }
 
+variable "scanner_sns_topic_arn" {
+  description = "Optional SNS topic ARN for S3 object created notifications (requires scanner_role_arn)"
+  type        = string
+  default     = ""
+}
+
+variable "scanner_role_arn" {
+  description = "Optional scanner role ARN to grant S3 read permissions (requires scanner_sns_topic_arn)"
+  type        = string
+  default     = ""
+}
+
+# Validation: both or neither scanner variables must be specified
+locals {
+  scanner_sns_provided  = var.scanner_sns_topic_arn != ""
+  scanner_role_provided = var.scanner_role_arn != ""
+  scanner_config_valid  = local.scanner_sns_provided == local.scanner_role_provided
+}
+
+resource "null_resource" "validate_scanner_config" {
+  count = local.scanner_config_valid ? 0 : 1
+
+  provisioner "local-exec" {
+    command = "echo 'Error: Both scanner_sns_topic_arn and scanner_role_arn must be specified together, or neither should be specified.' && exit 1"
+  }
+}
+
 # Configure providers
 provider "google" {
   project = var.project_id
@@ -456,6 +483,17 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_enc
   }
 }
 
+# S3 Bucket Notification Configuration (optional)
+resource "aws_s3_bucket_notification" "scanner_notification" {
+  count  = local.scanner_sns_provided ? 1 : 0
+  bucket = aws_s3_bucket.target_bucket.id
+
+  topic {
+    topic_arn = var.scanner_sns_topic_arn
+    events    = ["s3:ObjectCreated:*"]
+  }
+}
+
 # IAM Role for GCP Cloud Function to assume via OIDC
 resource "aws_iam_role" "s3_writer_role" {
   name = "gcp-logging-s3-writer-${random_id.suffix.hex}"
@@ -496,6 +534,33 @@ resource "aws_iam_role_policy" "s3_writer_policy" {
           "s3:GetObject",
           "s3:HeadObject",
           "s3:ListBucket"
+        ]
+        Resource = [
+          aws_s3_bucket.target_bucket.arn,
+          "${aws_s3_bucket.target_bucket.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+# IAM Policy for Scanner Role to read from S3 (optional)
+resource "aws_iam_role_policy" "scanner_read_policy" {
+  count = local.scanner_role_provided ? 1 : 0
+  name  = "scanner-s3-read-policy-${random_id.suffix.hex}"
+  role  = split("/", var.scanner_role_arn)[1]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetBucketNotification",
+          "s3:GetEncryptionConfiguration",
+          "s3:ListBucket",
+          "s3:GetObject",
+          "s3:GetObjectTagging"
         ]
         Resource = [
           aws_s3_bucket.target_bucket.arn,
