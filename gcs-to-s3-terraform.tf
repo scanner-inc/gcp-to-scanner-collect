@@ -83,6 +83,7 @@ variable "scanner_role_arn" {
 locals {
   scanner_sns_provided  = var.scanner_sns_topic_arn != ""
   scanner_role_provided = var.scanner_role_arn != ""
+  using_existing_bucket = var.existing_s3_bucket_name != ""
 }
 
 variable "log_prefix" {
@@ -101,6 +102,38 @@ variable "force_destroy_buckets" {
   description = "Allow deletion of non-empty buckets (useful for testing/development)"
   type        = bool
   default     = false
+}
+
+variable "s3_bucket_name" {
+  description = "Name for the S3 bucket to create (if not using existing_s3_bucket_name). If empty, generates: logging-s3-target-{account_id}-{random_suffix}"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.s3_bucket_name == "" || can(regex("^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$", var.s3_bucket_name))
+    error_message = "s3_bucket_name must be a valid S3 bucket name (3-63 chars, lowercase letters, numbers, dots, hyphens)."
+  }
+
+  validation {
+    condition     = var.s3_bucket_name == "" || var.existing_s3_bucket_name == ""
+    error_message = "Cannot specify both s3_bucket_name and existing_s3_bucket_name. Use one or the other."
+  }
+}
+
+variable "existing_s3_bucket_name" {
+  description = "Use an existing S3 bucket instead of creating a new one (must specify log_prefix, cannot use scanner variables)"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.existing_s3_bucket_name == "" || (var.scanner_sns_topic_arn == "" && var.scanner_role_arn == "")
+    error_message = "When using an existing S3 bucket, you cannot specify scanner_sns_topic_arn or scanner_role_arn (configure scanner integration directly in your AWS account)."
+  }
+
+  validation {
+    condition     = var.existing_s3_bucket_name == "" || var.log_prefix != ""
+    error_message = "When using an existing S3 bucket, you must specify a log_prefix to namespace your logs within the bucket."
+  }
 }
 
 # Configure providers
@@ -414,7 +447,7 @@ resource "google_cloudfunctions2_function" "transfer_function" {
     environment_variables = {
       AWS_ROLE_ARN  = aws_iam_role.s3_writer_role.arn
       AWS_REGION    = var.aws_region
-      TARGET_BUCKET = aws_s3_bucket.target_bucket.id
+      TARGET_BUCKET = local.target_bucket_name
       GCP_PROJECT   = var.project_id
     }
 
@@ -472,7 +505,7 @@ resource "google_cloudfunctions2_function" "cleanup_function" {
     environment_variables = {
       AWS_ROLE_ARN           = aws_iam_role.s3_writer_role.arn
       AWS_REGION             = var.aws_region
-      TARGET_BUCKET          = aws_s3_bucket.target_bucket.id
+      TARGET_BUCKET          = local.target_bucket_name
       TEMP_BUCKET            = google_storage_bucket.temp_bucket.name
       GCP_PROJECT            = var.project_id
       AGE_THRESHOLD_MINUTES  = var.age_threshold_minutes
@@ -530,24 +563,33 @@ resource "google_cloud_run_service_iam_member" "cleanup_invoker" {
 
 # ============== AWS Resources ==============
 
-# S3 Target Bucket
+# Data source for existing S3 bucket (if specified)
+data "aws_s3_bucket" "existing_bucket" {
+  count  = local.using_existing_bucket ? 1 : 0
+  bucket = var.existing_s3_bucket_name
+}
+
+# S3 Target Bucket (only create if not using existing)
 resource "aws_s3_bucket" "target_bucket" {
-  bucket        = "logging-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
+  count         = local.using_existing_bucket ? 0 : 1
+  bucket        = var.s3_bucket_name != "" ? var.s3_bucket_name : "logging-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
   force_destroy = var.force_destroy_buckets
 }
 
-# S3 Bucket Versioning
+# S3 Bucket Versioning (only for created bucket)
 resource "aws_s3_bucket_versioning" "target_bucket_versioning" {
-  bucket = aws_s3_bucket.target_bucket.id
+  count  = local.using_existing_bucket ? 0 : 1
+  bucket = aws_s3_bucket.target_bucket[0].id
 
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-# S3 Bucket Encryption
+# S3 Bucket Encryption (only for created bucket)
 resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_encryption" {
-  bucket = aws_s3_bucket.target_bucket.id
+  count  = local.using_existing_bucket ? 0 : 1
+  bucket = aws_s3_bucket.target_bucket[0].id
 
   rule {
     apply_server_side_encryption_by_default {
@@ -556,15 +598,21 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_enc
   }
 }
 
-# S3 Bucket Notification Configuration (optional)
+# S3 Bucket Notification Configuration (only for created bucket with scanner integration)
 resource "aws_s3_bucket_notification" "scanner_notification" {
-  count  = local.scanner_sns_provided ? 1 : 0
-  bucket = aws_s3_bucket.target_bucket.id
+  count  = !local.using_existing_bucket && local.scanner_sns_provided ? 1 : 0
+  bucket = aws_s3_bucket.target_bucket[0].id
 
   topic {
     topic_arn = var.scanner_sns_topic_arn
     events    = ["s3:ObjectCreated:*"]
   }
+}
+
+# Local variable to reference the bucket name (works for both created and existing)
+locals {
+  target_bucket_name = local.using_existing_bucket ? var.existing_s3_bucket_name : aws_s3_bucket.target_bucket[0].id
+  target_bucket_arn  = local.using_existing_bucket ? data.aws_s3_bucket.existing_bucket[0].arn : aws_s3_bucket.target_bucket[0].arn
 }
 
 # IAM Role for GCP Cloud Function to assume via OIDC
@@ -609,17 +657,17 @@ resource "aws_iam_role_policy" "s3_writer_policy" {
           "s3:ListBucket"
         ]
         Resource = [
-          aws_s3_bucket.target_bucket.arn,
-          "${aws_s3_bucket.target_bucket.arn}/*"
+          local.target_bucket_arn,
+          "${local.target_bucket_arn}/*"
         ]
       }
     ]
   })
 }
 
-# IAM Policy for Scanner Role to read from S3 (optional)
+# IAM Policy for Scanner Role to read from S3 (only for created bucket)
 resource "aws_iam_role_policy" "scanner_read_policy" {
-  count = local.scanner_role_provided ? 1 : 0
+  count = !local.using_existing_bucket && local.scanner_role_provided ? 1 : 0
   name  = "scanner-s3-read-policy-${random_id.suffix.hex}"
   role  = split("/", var.scanner_role_arn)[1]
 
@@ -636,8 +684,8 @@ resource "aws_iam_role_policy" "scanner_read_policy" {
           "s3:GetObjectTagging"
         ]
         Resource = [
-          aws_s3_bucket.target_bucket.arn,
-          "${aws_s3_bucket.target_bucket.arn}/*"
+          local.target_bucket_arn,
+          "${local.target_bucket_arn}/*"
         ]
       }
     ]
@@ -652,7 +700,7 @@ output "temp_bucket_name" {
 }
 
 output "s3_bucket_name" {
-  value       = aws_s3_bucket.target_bucket.id
+  value       = local.target_bucket_name
   description = "Name of the S3 target bucket"
 }
 
@@ -711,12 +759,12 @@ output "test_instructions" {
      gcloud functions logs read ${google_cloudfunctions2_function.transfer_function.name} --region=${var.region} --limit=20
 
   4. Verify logs are appearing in S3:
-     aws s3 ls s3://${aws_s3_bucket.target_bucket.id}/logs/ --recursive | head -20
+     aws s3 ls s3://${local.target_bucket_name}/${var.log_prefix}/ --recursive | head -20
 
   5. Check cleanup function logs (runs every 30 min):
      gcloud functions logs read ${google_cloudfunctions2_function.cleanup_function.name} --region=${var.region} --limit=10
 
   Latency: Logs should appear in S3 within 2-3 minutes.
-${local.scanner_sns_provided ? "\n  Scanner Integration:\n  You can now link your AWS bucket '${aws_s3_bucket.target_bucket.id}' in the scanner AWS account settings.\n" : ""}
+${local.scanner_sns_provided ? "\n  Scanner Integration:\n  You can now link your AWS bucket '${local.target_bucket_name}' in the scanner AWS account settings.\n" : ""}
   EOT
 }

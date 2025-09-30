@@ -17,17 +17,31 @@ aws_region     = "us-east-1"
 #   log_filter = "protoPayload.serviceName=\"compute.googleapis.com\""  # Only Compute Engine audit logs
 log_filter = ""
 
-# Cleanup Configuration
-# Age threshold in minutes for cleanup function to consider files stale
-age_threshold_minutes = 30
-
 # Log File Organization
 # Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')
 # Files will be organized as: {log_prefix}/YYYY/MM/DD/hh/mm_ssZ_<hash>.jsonl
-log_prefix = "logs"
+# log_prefix = ""
+
+# S3 Bucket Configuration
+# Option 1: Create a new bucket with a custom name
+# s3_bucket_name = "mycompany-gcp-audit-logs"
+
+# Option 2: Use an existing bucket (e.g., reuse an existing scanner bucket)
+# When using existing_s3_bucket_name:
+#   - You MUST set a log_prefix (to namespace your logs)
+#   - You CANNOT use scanner_sns_topic_arn or scanner_role_arn (we assume the bucket is already set up)
+#   - Terraform will still create an AWS IAM role that can write to this bucket
+# existing_s3_bucket_name = "my-existing-scanner-bucket"
+
+# If neither is specified, a bucket will be auto-generated as: logging-s3-target-{account_id}-{random_suffix}
+
+# Bucket Cleanup Configuration
+# Allow Terraform to delete non-empty buckets during destroy (useful for testing/development)
+# WARNING: In production, leave this as false to prevent accidental data loss
+# force_destroy_buckets = true
 
 # Scanner Integration (Optional)
-# If you want to integrate with a scanner service, specify BOTH variables below.
+# If you want to integrate with scanner, specify BOTH variables below.
 # When both are provided:
 #   1. The S3 bucket will send notifications to the SNS topic on s3:ObjectCreated:* events
 #   2. The scanner role will be granted read permissions to the S3 bucket
