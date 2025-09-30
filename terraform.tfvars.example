@@ -1,0 +1,21 @@
+# GCP Configuration
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+
+# AWS Configuration
+aws_account_id = "123456789012"
+aws_region     = "us-east-1"
+
+# Logging Configuration
+# Filter for Cloud Logging sink - empty string means all logs
+# Examples:
+#   log_filter = ""  # All logs
+#   log_filter = "resource.type=\"k8s_container\""  # Only Kubernetes logs
+#   log_filter = "severity>=ERROR"  # Only errors and above
+log_filter = ""
+
+# Cleanup Configuration
+# Age threshold in minutes for cleanup function to consider files stale
+age_threshold_minutes = 60
+
+# TODO: should we allow the use of existing s3 buckets? (and in that case, also add a prefix within that bucket to dump data?)
