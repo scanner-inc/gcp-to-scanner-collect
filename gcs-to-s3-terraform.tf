@@ -56,27 +56,33 @@ variable "scanner_sns_topic_arn" {
   description = "Optional SNS topic ARN for S3 object created notifications (requires scanner_role_arn)"
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.scanner_sns_topic_arn == "" || can(regex("^arn:aws:sns:[a-z0-9-]+:[0-9]{12}:.+$", var.scanner_sns_topic_arn))
+    error_message = "scanner_sns_topic_arn must be a valid SNS topic ARN or empty string."
+  }
 }
 
 variable "scanner_role_arn" {
   description = "Optional scanner role ARN to grant S3 read permissions (requires scanner_sns_topic_arn)"
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.scanner_role_arn == "" || can(regex("^arn:aws:iam::[0-9]{12}:role/.+$", var.scanner_role_arn))
+    error_message = "scanner_role_arn must be a valid IAM role ARN or empty string."
+  }
+
+  validation {
+    condition     = (var.scanner_sns_topic_arn == "") == (var.scanner_role_arn == "")
+    error_message = "Both scanner_sns_topic_arn and scanner_role_arn must be specified together, or neither should be specified."
+  }
 }
 
 # Validation: both or neither scanner variables must be specified
 locals {
   scanner_sns_provided  = var.scanner_sns_topic_arn != ""
   scanner_role_provided = var.scanner_role_arn != ""
-  scanner_config_valid  = local.scanner_sns_provided == local.scanner_role_provided
-}
-
-resource "null_resource" "validate_scanner_config" {
-  count = local.scanner_config_valid ? 0 : 1
-
-  provisioner "local-exec" {
-    command = "echo 'Error: Both scanner_sns_topic_arn and scanner_role_arn must be specified together, or neither should be specified.' && exit 1"
-  }
 }
 
 variable "log_prefix" {

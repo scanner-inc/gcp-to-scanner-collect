@@ -13,6 +13,8 @@ aws_region     = "us-east-1"
 #   log_filter = ""  # All logs
 #   log_filter = "resource.type=\"k8s_container\""  # Only Kubernetes logs
 #   log_filter = "severity>=ERROR"  # Only errors and above
+#   log_filter = "logName:\"cloudaudit.googleapis.com\""  # Only audit logs
+#   log_filter = "protoPayload.serviceName=\"compute.googleapis.com\""  # Only Compute Engine audit logs
 log_filter = ""
 
 # Cleanup Configuration
@@ -33,6 +35,6 @@ log_prefix = "logs"
 # Note: Both variables must be specified together, or neither should be specified.
 # Specifying only one will cause a validation error.
 #
-# Replace the account ID and region with your actual values:
+# Replace the following with your actual configuration (especially region + account number must be changed)
 # scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"
 # scanner_role_arn      = "arn:aws:iam::123456789012:role/scnr-ScannerRole"
