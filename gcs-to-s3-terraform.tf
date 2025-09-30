@@ -152,37 +152,44 @@ resource "random_id" "suffix" {
 # Enable required APIs
 resource "google_project_service" "logging" {
   service                    = "logging.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudfunctions" {
   service                    = "cloudfunctions.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudbuild" {
   service                    = "cloudbuild.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "pubsub" {
   service                    = "pubsub.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudrun" {
   service                    = "run.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "cloudscheduler" {
   service                    = "cloudscheduler.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 resource "google_project_service" "eventarc" {
   service                    = "eventarc.googleapis.com"
-  disable_dependent_services = true
+  disable_dependent_services = false
+  disable_on_destroy         = false
 }
 
 # GCS Bucket for temporary log batching

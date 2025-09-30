@@ -33,5 +33,6 @@ log_prefix = "logs"
 # Note: Both variables must be specified together, or neither should be specified.
 # Specifying only one will cause a validation error.
 #
-# scanner_sns_topic_arn = "arn:aws:sns:${var.aws_region}:${var.aws_account_id}:scnr-LogsBucketEventNotificationTopic"
-# scanner_role_arn      = "arn:aws:iam::${var.aws_account_id}:role/scnr-ScannerRole"
+# Replace the account ID and region with your actual values:
+# scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"
+# scanner_role_arn      = "arn:aws:iam::123456789012:role/scnr-ScannerRole"
