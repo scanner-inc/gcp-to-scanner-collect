@@ -5,6 +5,7 @@ region     = "us-central1"
 # AWS Configuration
 aws_account_id = "123456789012"
 aws_region     = "us-east-1"
+# aws_profile  = "my-profile"  # Optional: specify AWS CLI profile to use (defaults to default profile)
 
 # Logging Configuration
 # Filter for Cloud Logging sink - empty string means all logs
@@ -18,6 +19,11 @@ log_filter = ""
 # Age threshold in minutes for cleanup function to consider files stale
 age_threshold_minutes = 30
 
+# Log File Organization
+# Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')
+# Files will be organized as: {log_prefix}/YYYY/MM/DD/hh/mm_ssZ_<hash>.jsonl
+log_prefix = "logs"
+
 # Scanner Integration (Optional)
 # If you want to integrate with a scanner service, specify BOTH variables below.
 # When both are provided:
@@ -29,5 +35,3 @@ age_threshold_minutes = 30
 #
 # scanner_sns_topic_arn = "arn:aws:sns:${var.aws_region}:${var.aws_account_id}:scnr-LogsBucketEventNotificationTopic"
 # scanner_role_arn      = "arn:aws:iam::${var.aws_account_id}:role/scnr-ScannerRole"
-
-# TODO: should we allow the use of existing s3 buckets? (and in that case, also add a prefix within that bucket to dump data?)
