@@ -1,0 +1,7 @@
+terraform.tfvars
+.terraform/
+.terraform.lock.hcl
+.terraform.tfstate.lock.info
+terraform.tfstate
+cleanup_function.zip
+transfer_function.zip

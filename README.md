@@ -35,7 +35,7 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 - **GCS Temporary Bucket**: Stores batched logs temporarily before S3 transfer
 - **Primary Cloud Function**: Triggered on GCS object creation, transfers to S3 with compression handling, deletes from GCS on success
 - **Cleanup Cloud Function**: Runs every 30 minutes via Cloud Scheduler to retry stale files (>1 hour old)
-- **Workload Identity Federation**: Uses OIDC/JWT tokens from GCP metadata server to assume AWS role
+- **Workload Identity Federation**: Uses OIDC/JWT tokens from GCP metadata server to assume AWS role (no credentials required)
 - **S3 Target Bucket**: Final destination for compressed log files with versioning and encryption
 
 ## Prerequisites
@@ -51,14 +51,9 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 
 ### 1. Configure Variables
 
-Create a `terraform.tfvars` file:
+Create a `terraform.tfvars` file.
 
-```hcl
-project_id     = "your-gcp-project-id"
-aws_account_id = "123456789012"
-region         = "us-central1"  # Optional: GCP region (default: us-central1)
-aws_region     = "us-east-1"    # Optional: AWS region (default: us-east-1)
-```
+Copy `terraform.tfvars.example` to `terraform.tfvars` and modify.
 
 ### 2. Initialize Terraform
 
@@ -82,37 +77,62 @@ terraform apply
 
 Once deployed, the pipeline works automatically:
 
-1. **Upload a file to the GCS source bucket**:
-   ```bash
-   gsutil cp your-file.txt gs://[GCS_BUCKET_NAME]/
-   ```
+1. **Logs are generated** in your GCP project
+2. **Cloud Logging sink** routes matching logs to Pub/Sub topic (configurable via `log_filter` variable)
+3. **Push subscription** batches log entries and writes to GCS (every 1 minute or 10MB of logs)
+4. **Primary function** transfers batched files from GCS to S3 and deletes from GCS
+5. **Cleanup function** retries any stale files (>1 hour old) every 30 minutes
 
-2. **The pipeline automatically**:
-   - Detects the new object via bucket notifications
-   - Triggers the Cloud Function through Pub/Sub
-   - Downloads the object from GCS
-   - Uploads it to the S3 target bucket
-
-3. **Verify the transfer**:
-   ```bash
-   aws s3 ls s3://[S3_BUCKET_NAME]/
-   ```
+Expected latency: **1-3 minutes** from log generation to S3 availability.
 
 ## Testing
 
-After deployment, Terraform outputs test instructions. Example:
+After deployment, test the end-to-end pipeline with actual log entries:
+
+### 1. Write Test Log Entries
 
 ```bash
-# Upload test file
-echo "test content" > test.txt
-gsutil cp test.txt gs://[GCS_BUCKET_NAME]/
-
-# Check function logs
-gcloud functions logs read [FUNCTION_NAME] --region=[REGION]
-
-# Verify in S3
-aws s3 ls s3://[S3_BUCKET_NAME]/
+# Write multiple test log entries (batching is more realistic)
+for i in {1..5}; do
+  gcloud logging write test-log-pipeline \
+    "Test log entry $i at $(date)" \
+    --severity=INFO
+done
 ```
+
+### 2. Wait for Pipeline Processing
+
+Logs are batched and transferred within 1-3 minutes. Wait at least 2 minutes before checking.
+
+### 3. Verify Logs Arrived in S3
+
+```bash
+# List recent files in S3 (should see files timestamped within last few minutes)
+aws s3 ls s3://[S3_BUCKET_NAME]/ --recursive --human-readable
+
+# Download and inspect a log file
+aws s3 cp s3://[S3_BUCKET_NAME]/[FILENAME] - | gunzip | jq '.'
+```
+
+### 4. Monitor the Pipeline
+
+```bash
+# Check Cloud Function logs for transfer activity
+gcloud functions logs read [FUNCTION_NAME] --region=[REGION] --limit=20
+
+# View Pub/Sub subscription metrics
+gcloud pubsub subscriptions describe [SUBSCRIPTION_NAME]
+
+# Check GCS bucket (should be empty or contain only very recent files)
+gsutil ls gs://[GCS_BUCKET_NAME]/
+```
+
+### Expected Behavior
+
+- Log entries are batched together (you should see fewer files than individual logs)
+- Files in S3 are gzipped (`.gz` extension or compressed content)
+- GCS bucket is empty or contains only recent files (files deleted after successful transfer)
+- Total latency from `gcloud logging write` to S3 availability: 1-3 minutes
 
 ## Monitoring
 
@@ -130,24 +150,6 @@ gcloud pubsub topics list-subscriptions [TOPIC_NAME]
 ```bash
 aws s3 ls s3://[S3_BUCKET_NAME]/ --recursive
 ```
-
-## Configuration Details
-
-### Function Specifications
-- **Runtime**: Python 3.11
-- **Memory**: 512 MB
-- **Timeout**: 540 seconds (9 minutes)
-- **Max Instances**: 10
-- **Min Instances**: 0 (scales to zero)
-- **Streaming**: Files are streamed directly from GCS to S3 (not loaded into memory)
-- **Retry Policy**: Automatic retries enabled for failed transfers
-
-### Security Features
-- Service accounts with minimal required permissions
-- Workload Identity Federation for cross-cloud authentication
-- S3 bucket encryption (AES256)
-- S3 versioning enabled
-- No hardcoded credentials
 
 ## Outputs
 
@@ -168,23 +170,6 @@ terraform destroy
 ```
 
 **Note**: Buckets are configured with `force_destroy = true` for easy cleanup. In production, you may want to change this.
-
-## Troubleshooting
-
-### Function Not Triggering
-- Check Pub/Sub topic has proper permissions
-- Verify bucket notifications are configured
-- Review function logs for errors
-
-### Authentication Errors
-- Ensure Workload Identity Pool is properly configured
-- Verify AWS IAM role trust policy
-- Check service account permissions
-
-### Transfer Failures
-- Verify network connectivity
-- Check object size (function has 9-minute timeout)
-- Review function memory allocation for large files
 
 ## Cost Considerations
 

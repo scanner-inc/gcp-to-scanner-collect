@@ -444,7 +444,7 @@ resource "aws_iam_role" "s3_writer_role" {
           StringEquals = {
             "accounts.google.com:sub" = google_service_account.function_sa.unique_id
             "accounts.google.com:aud" = google_service_account.function_sa.unique_id
-            "accounts.google.com:oaud" = aws_iam_role.s3_writer_role.arn
+            "accounts.google.com:oaud" = "arn:aws:iam::${var.aws_account_id}:role/gcp-logging-s3-writer-${random_id.suffix.hex}"
           }
         }
       }
