@@ -3,5 +3,6 @@ terraform.tfvars
 .terraform.lock.hcl
 .terraform.tfstate.lock.info
 terraform.tfstate
+terraform.tfstate.backup
 cleanup_function.zip
 transfer_function.zip
