@@ -49,7 +49,7 @@ variable "log_filter" {
 variable "age_threshold_minutes" {
   description = "Age threshold in minutes for cleanup function to consider files stale"
   type        = number
-  default     = 60
+  default     = 30
 }
 
 # Configure providers
@@ -137,6 +137,18 @@ resource "google_pubsub_topic" "log_sink_topic" {
   depends_on = [google_project_service.pubsub]
 }
 
+# Get GCS service account for Eventarc
+data "google_storage_project_service_account" "gcs_account" {
+  project = var.project_id
+}
+
+# Grant GCS service account Pub/Sub Publisher role for Eventarc triggers
+resource "google_project_iam_member" "gcs_pubsub_publisher" {
+  project = var.project_id
+  role    = "roles/pubsub.publisher"
+  member  = "serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"
+}
+
 # Pub/Sub Push Subscription to GCS
 # Note: This requires setting up a Cloud Storage service agent with proper permissions
 # The subscription will batch messages and write them to GCS
@@ -150,13 +162,15 @@ resource "google_pubsub_subscription" "log_to_gcs" {
     filename_prefix = "logs/"
     filename_suffix = ".json"
 
-    # Batch settings for ~1-3 minute latency
-    max_duration = "60s" # Maximum 1 minutes
+    # Batch settings for better aggregation
+    # Flushes when EITHER condition is met (2 minutes OR 10MB)
+    max_duration = "120s" # Maximum 2 minutes
     max_bytes    = 10485760 # 10 MB
   }
 
   depends_on = [
-    google_storage_bucket_iam_member.pubsub_gcs_writer
+    google_storage_bucket_iam_member.pubsub_gcs_writer,
+    google_storage_bucket_iam_member.pubsub_gcs_reader
   ]
 }
 
@@ -166,6 +180,12 @@ data "google_project" "project" {}
 resource "google_storage_bucket_iam_member" "pubsub_gcs_writer" {
   bucket = google_storage_bucket.temp_bucket.name
   role   = "roles/storage.objectCreator"
+  member = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+resource "google_storage_bucket_iam_member" "pubsub_gcs_reader" {
+  bucket = google_storage_bucket.temp_bucket.name
+  role   = "roles/storage.legacyBucketReader"
   member = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
 
@@ -201,6 +221,13 @@ resource "google_storage_bucket_iam_member" "function_gcs_admin" {
   bucket = google_storage_bucket.temp_bucket.name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${google_service_account.function_sa.email}"
+}
+
+# Grant Function SA permission to receive Eventarc events
+resource "google_project_iam_member" "function_eventarc_receiver" {
+  project = var.project_id
+  role    = "roles/eventarc.eventReceiver"
+  member  = "serviceAccount:${google_service_account.function_sa.email}"
 }
 
 # Create deployment packages
@@ -310,7 +337,9 @@ resource "google_cloudfunctions2_function" "transfer_function" {
     google_project_service.cloudfunctions,
     google_project_service.cloudbuild,
     google_project_service.cloudrun,
-    google_project_service.eventarc
+    google_project_service.eventarc,
+    google_project_iam_member.function_eventarc_receiver,
+    google_project_iam_member.gcs_pubsub_publisher
   ]
 }
 
@@ -549,7 +578,7 @@ output "test_instructions" {
   5. Check cleanup function logs (runs every 30 min):
      gcloud functions logs read ${google_cloudfunctions2_function.cleanup_function.name} --region=${var.region} --limit=10
 
-  Latency: Logs should appear in S3 within 1-3 minutes.
+  Latency: Logs should appear in S3 within 2-3 minutes.
 
   EOT
 }

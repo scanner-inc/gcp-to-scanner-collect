@@ -1,6 +1,6 @@
 # GCP Logging to S3 Pipeline
 
-Automated pipeline that exports GCP Cloud Logging logs to Amazon S3 with 1-3 minute latency. Logs are batched in GCS temporarily, then transferred to S3 with efficient compression handling.
+Automated pipeline that exports GCP Cloud Logging logs to Amazon S3 with 2-3 minute latency. Logs are batched in GCS temporarily, then transferred to S3 with efficient compression handling.
 
 ## Overview
 
@@ -79,11 +79,11 @@ Once deployed, the pipeline works automatically:
 
 1. **Logs are generated** in your GCP project
 2. **Cloud Logging sink** routes matching logs to Pub/Sub topic (configurable via `log_filter` variable)
-3. **Push subscription** batches log entries and writes to GCS (every 1 minute or 10MB of logs)
+3. **Push subscription** batches log entries and writes to GCS (every 2 minutes or 10MB of logs)
 4. **Primary function** transfers batched files from GCS to S3 and deletes from GCS
 5. **Cleanup function** retries any stale files (>1 hour old) every 30 minutes
 
-Expected latency: **1-3 minutes** from log generation to S3 availability.
+Expected latency: **2-3 minutes** from log generation to S3 availability.
 
 ## Testing
 
@@ -102,7 +102,7 @@ done
 
 ### 2. Wait for Pipeline Processing
 
-Logs are batched and transferred within 1-3 minutes. Wait at least 2 minutes before checking.
+Logs are batched and transferred within 2-3 minutes. Wait at least 3 minutes before checking.
 
 ### 3. Verify Logs Arrived in S3
 
@@ -132,7 +132,15 @@ gsutil ls gs://[GCS_BUCKET_NAME]/
 - Log entries are batched together (you should see fewer files than individual logs)
 - Files in S3 are gzipped (`.gz` extension or compressed content)
 - GCS bucket is empty or contains only recent files (files deleted after successful transfer)
-- Total latency from `gcloud logging write` to S3 availability: 1-3 minutes
+- Total latency from `gcloud logging write` to S3 availability: 2-3 minutes
+
+### Batching Behavior Notes
+
+Batching behavior varies by log volume:
+
+- **Low volume projects**: Expect ~16 small objects per flush period (2 minutes), typically 2-15KB each. This is micro-batching behavior.
+- **High volume projects**: Objects will be larger as more logs accumulate before the time/size thresholds are met, resulting in better batching efficiency.
+- **Why this happens (conjecture)**: Pub/Sub likely distributes incoming messages across multiple internal workers/shards. Each shard may maintain its own batch window and flush independently when the `max_duration` (2 minutes) or `max_bytes` (10MB) threshold is reached. With low log volume, shards timeout before accumulating significant data.
 
 ## Monitoring
 
