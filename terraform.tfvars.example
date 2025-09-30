@@ -21,7 +21,7 @@ age_threshold_minutes = 30
 
 # Log File Organization
 # Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')
-# Files will be organized as: {log_prefix}/YYYY/MM/DD/hh/RFC3339_<hash>.jsonl
+# Files will be organized as: {log_prefix}/YYYY/MM/DD/hh/mm_ssZ_<hash>.jsonl
 log_prefix = "logs"
 
 # TODO: should we allow the use of existing s3 buckets? (and in that case, also add a prefix within that bucket to dump data?)
