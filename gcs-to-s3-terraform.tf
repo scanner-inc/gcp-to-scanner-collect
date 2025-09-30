@@ -91,6 +91,12 @@ variable "aws_profile" {
   default     = null
 }
 
+variable "force_destroy_buckets" {
+  description = "Allow deletion of non-empty buckets (useful for testing/development)"
+  type        = bool
+  default     = false
+}
+
 # Configure providers
 provider "google" {
   project = var.project_id
@@ -196,7 +202,7 @@ resource "google_project_service" "eventarc" {
 resource "google_storage_bucket" "temp_bucket" {
   name          = "logging-temp-${var.project_id}-${random_id.suffix.hex}"
   location      = var.region
-  force_destroy = true
+  force_destroy = var.force_destroy_buckets
 
   uniform_bucket_level_access = true
 
@@ -214,7 +220,7 @@ resource "google_storage_bucket" "temp_bucket" {
 resource "google_storage_bucket" "function_source_bucket" {
   name          = "gcf-source-${var.project_id}-${random_id.suffix.hex}"
   location      = var.region
-  force_destroy = true
+  force_destroy = true # Safe to force destroy - content is versioned in this repo
 }
 
 # Pub/Sub Topic for log sink
@@ -521,7 +527,7 @@ resource "google_cloud_run_service_iam_member" "cleanup_invoker" {
 # S3 Target Bucket
 resource "aws_s3_bucket" "target_bucket" {
   bucket        = "logging-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
-  force_destroy = true
+  force_destroy = var.force_destroy_buckets
 }
 
 # S3 Bucket Versioning
@@ -705,6 +711,6 @@ output "test_instructions" {
      gcloud functions logs read ${google_cloudfunctions2_function.cleanup_function.name} --region=${var.region} --limit=10
 
   Latency: Logs should appear in S3 within 2-3 minutes.
-
+${local.scanner_sns_provided ? "\n  Scanner Integration:\n  You can now link your AWS bucket '${aws_s3_bucket.target_bucket.id}' in the scanner AWS account settings.\n" : ""}
   EOT
 }
