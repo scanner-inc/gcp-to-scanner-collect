@@ -17,8 +17,6 @@ import io
 import gzip
 import sys
 
-# Import the actual implementation from shared.py
-# The GCS/S3 client imports in shared.py won't cause issues since we're only importing the class
 from shared import GzipStreamWrapper
 
 
