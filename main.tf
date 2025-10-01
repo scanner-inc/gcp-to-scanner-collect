@@ -89,8 +89,8 @@ provider "aws" {
 #   force_destroy_buckets = var.force_destroy_buckets
 # }
 
-# Pipeline for Cloud Function logs
-# module "function_logs_pipeline" {
+# Pipeline for Cloud Run logs (includes Cloud Functions Gen 2)
+# module "cloudrun_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
 #   project_id     = var.project_id
@@ -98,9 +98,9 @@ provider "aws" {
 #   aws_account_id = var.aws_account_id
 #   aws_region     = var.aws_region
 #
-#   log_filter     = "resource.type=\"cloud_function\""
-#   log_prefix     = "function-logs"
-#   s3_bucket_name = "mycompany-gcp-function-logs"
+#   log_filter     = "protoPayload.serviceName=\"run.googleapis.com\""
+#   log_prefix     = "cloudrun-logs"
+#   s3_bucket_name = "mycompany-gcp-cloudrun-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 # }
