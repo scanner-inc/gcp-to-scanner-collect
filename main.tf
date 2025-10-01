@@ -38,15 +38,15 @@ provider "aws" {
 #
 # All pipeline modules depend on this shared module.
 
-# module "shared_gcp_resources" {
-#   source = "./modules/shared-gcp-resources"
-#
-#   project_id = var.project_id
-#   region     = var.region
-#
-#   # Optional: Override function source bucket name
-#   # source_bucket_name = "my-custom-gcf-source"
-# }
+module "shared_gcp_resources" {
+  source = "./modules/shared-gcp-resources"
+
+  project_id = var.project_id
+  region     = var.region
+
+  # Optional: Override function source bucket name
+  # source_bucket_name = "my-custom-gcf-source"
+}
 
 # ============================================================================
 # Pipeline Modules
@@ -73,7 +73,7 @@ provider "aws" {
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
-#   # Optional scanner integration
+#   # Scanner integration
 #   scanner_sns_topic_arn = var.scanner_sns_topic_arn
 #   scanner_role_arn      = var.scanner_role_arn
 # }
@@ -99,9 +99,9 @@ provider "aws" {
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
-#   # Optional: Enable scanner integration for audit logs
-#   # scanner_sns_topic_arn = var.scanner_sns_topic_arn
-#   # scanner_role_arn      = var.scanner_role_arn
+#   # Scanner integration:
+#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
+#   scanner_role_arn      = var.scanner_role_arn
 # }
 
 # Pipeline for Kubernetes logs
@@ -121,6 +121,10 @@ provider "aws" {
 #   s3_bucket_name = "mycompany-gcp-k8s-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
+#
+#   # Scanner integration:
+#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
+#   scanner_role_arn      = var.scanner_role_arn
 # }
 
 # Pipeline for Cloud Run logs (includes Cloud Functions Gen 2)
@@ -140,6 +144,10 @@ provider "aws" {
 #   s3_bucket_name = "mycompany-gcp-cloudrun-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
+#
+#   # Scanner integration:
+#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
+#   scanner_role_arn      = var.scanner_role_arn
 # }
 
 # Example: Using an existing S3 bucket
@@ -180,6 +188,10 @@ provider "aws" {
 #   log_prefix = "custom-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
+#
+#   # Scanner integration:
+#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
+#   scanner_role_arn      = var.scanner_role_arn
 #
 #   # Optional: Explicitly override every single resource name
 #   # (normally you'd just rely on the 'name' parameter to prefix everything)
