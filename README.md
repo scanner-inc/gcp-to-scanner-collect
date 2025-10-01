@@ -77,81 +77,18 @@ cp terraform.tfvars.example terraform.tfvars
 - `region`: GCP region (default: `us-central1`)
 - `aws_region`: AWS region (default: `us-east-1`)
 
-### 2. Choose Deployment Mode
+### 2. Configure Your Pipeline(s)
 
-#### Option A: Single Pipeline
+Open `main.tf` and uncomment one or more example module configurations:
 
-Uncomment the `all_logs_pipeline` module in `main.tf`:
+- **Single pipeline** (`all_logs_pipeline`): Captures all logs to one S3 bucket
+- **Multiple pipelines** (`audit_logs_pipeline`, `k8s_logs_pipeline`, etc.): Separates different log types into different S3 buckets
+- **Existing S3 bucket** (`logs_to_existing_bucket`): Uses a pre-existing S3 bucket
+- **Custom resource names** (`custom_names_pipeline`): Shows all 11 resources and how to override their names
 
-```hcl
-module "all_logs_pipeline" {
-  source = "./modules/gcp-to-s3-pipeline"
+Each module requires a `name` parameter that prefixes all resources for easy identification in GCP and AWS consoles.
 
-  project_id         = var.project_id
-  region             = var.region
-  aws_account_id     = var.aws_account_id
-  aws_region         = var.aws_region
-
-  log_filter         = var.log_filter  # Configure in terraform.tfvars
-  log_prefix         = var.log_prefix
-  s3_bucket_name     = var.s3_bucket_name
-
-  force_destroy_buckets = var.force_destroy_buckets
-
-  # Optional scanner integration
-  scanner_sns_topic_arn = var.scanner_sns_topic_arn
-  scanner_role_arn      = var.scanner_role_arn
-}
-```
-
-Configure the pipeline in `terraform.tfvars`:
-- `log_filter`: Filter for logs (empty = all logs)
-- `s3_bucket_name`: Custom bucket name (optional)
-- `log_prefix`: Path prefix in S3 (default: `"logs"`)
-
-#### Option B: Multiple Pipelines
-
-Uncomment and configure multiple modules in `main.tf`. Each pipeline can have different configurations:
-
-```hcl
-# Audit logs pipeline
-module "audit_logs_pipeline" {
-  source = "./modules/gcp-to-s3-pipeline"
-
-  name           = "audit-logs"
-  project_id     = var.project_id
-  region         = var.region
-  aws_account_id = var.aws_account_id
-  aws_region     = var.aws_region
-
-  log_filter     = "logName:\"cloudaudit.googleapis.com\""
-  log_prefix     = "audit-logs"
-  s3_bucket_name = "mycompany-gcp-audit-logs"
-
-  force_destroy_buckets = var.force_destroy_buckets
-
-  # Optional scanner integration for audit logs
-  scanner_sns_topic_arn = var.scanner_sns_topic_arn
-  scanner_role_arn      = var.scanner_role_arn
-}
-
-# Kubernetes logs pipeline
-module "k8s_logs_pipeline" {
-  source = "./modules/gcp-to-s3-pipeline"
-
-  name           = "k8s-logs"
-  project_id     = var.project_id
-  region         = var.region
-  aws_account_id = var.aws_account_id
-  aws_region     = var.aws_region
-
-  log_filter     = "resource.type=\"k8s_container\""
-  log_prefix     = "k8s-logs"
-  s3_bucket_name = "mycompany-gcp-k8s-logs"
-
-  force_destroy_buckets = var.force_destroy_buckets
-}
-```
+See `main.tf` for detailed examples with inline documentation.
 
 #### Module Configuration Options
 
@@ -317,13 +254,18 @@ aws s3 ls s3://[S3_BUCKET_NAME]/ --recursive
 
 ## Outputs
 
-After successful deployment, Terraform provides:
-- `gcs_bucket_name`: Source GCS bucket name
+After successful deployment, each module provides outputs including:
+- `temp_bucket_name`: GCS temporary batching bucket name
 - `s3_bucket_name`: Target S3 bucket name
-- `function_name`: Cloud Function name
+- `transfer_function_name`: Transfer function name
+- `cleanup_function_name`: Cleanup function name
 - `pubsub_topic_name`: Pub/Sub topic name
+- `log_sink_name`: Cloud Logging sink name
 - `aws_role_arn`: AWS IAM role ARN
-- `test_instructions`: Quick testing commands
+- `service_account_email`: Service account email
+- `test_instructions`: Quick testing commands and verification steps
+
+See `modules/gcp-to-s3-pipeline/outputs.tf` for the complete list.
 
 ## Cleanup
 
