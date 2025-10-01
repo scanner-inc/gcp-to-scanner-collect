@@ -1,3 +1,0 @@
-functions-framework==3.*
-google-cloud-storage==2.10.0
-boto3==1.28.0

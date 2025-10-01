@@ -4,9 +4,6 @@ terraform.tfvars
 .terraform.tfstate.lock.info
 terraform.tfstate
 terraform.tfstate.backup
-modules/gcp-to-s3-pipeline/cleanup_function.zip
-modules/gcp-to-s3-pipeline/transfer_function.zip
-modules/gcp-to-s3-pipeline/function_source/__pycache__/
 modules/shared-gcp-resources/cleanup_function.zip
 modules/shared-gcp-resources/transfer_function.zip
 modules/shared-gcp-resources/function_source/__pycache__/
