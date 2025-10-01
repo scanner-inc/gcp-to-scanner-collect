@@ -4,8 +4,8 @@ variable "name" {
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z][a-z0-9-]{0,62}$", var.name))
-    error_message = "Name must start with a letter, contain only lowercase letters, numbers, and hyphens, and be 1-63 characters long."
+    condition     = can(regex("^[a-z][a-z0-9-]{0,17}$", var.name))
+    error_message = "Name must start with a letter, contain only lowercase letters, numbers, and hyphens, and be 1-18 characters long (required for service account ID to fit within 30 char limit)."
   }
 }
 
@@ -166,7 +166,7 @@ variable "logging_sink_id" {
 }
 
 variable "service_account_id" {
-  description = "Override ID for service account (default: {name}-to-s3-fn-{suffix}, max 30 chars)"
+  description = "Override ID for service account (default: {name}-sa-{suffix}, max 30 chars)"
   type        = string
   default     = ""
 }

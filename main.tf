@@ -95,7 +95,7 @@ module "shared_gcp_resources" {
 #
 #   log_filter     = "logName:\"cloudaudit.googleapis.com\""
 #   log_prefix     = "audit-logs"
-#   s3_bucket_name = "mycompany-gcp-audit-logs"
+#   # s3_bucket_name = "mycompany-gcp-audit-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
@@ -118,7 +118,7 @@ module "shared_gcp_resources" {
 #
 #   log_filter     = "resource.type=\"k8s_container\""
 #   log_prefix     = "k8s-logs"
-#   s3_bucket_name = "mycompany-gcp-k8s-logs"
+#   # s3_bucket_name = "mycompany-gcp-k8s-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
@@ -141,7 +141,7 @@ module "shared_gcp_resources" {
 #
 #   log_filter     = "protoPayload.serviceName=\"run.googleapis.com\""
 #   log_prefix     = "cloudrun-logs"
-#   s3_bucket_name = "mycompany-gcp-cloudrun-logs"
+#   # s3_bucket_name = "mycompany-gcp-cloudrun-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
@@ -201,7 +201,7 @@ module "shared_gcp_resources" {
 #   pubsub_topic_id        = "my-custom-export-topic"      # Pub/Sub topic for Cloud Logging sink
 #   pubsub_subscription_id = "my-custom-to-gcs-sub"        # Pub/Sub subscription to write to GCS
 #   logging_sink_id        = "my-custom-export-sink"       # Cloud Logging sink to Pub/Sub
-#   service_account_id     = "my-custom-fn-sa"             # Service account for Cloud Functions
+#   service_account_id     = "my-custom-sa"                # Service account for Cloud Functions (max 30 chars)
 #   transfer_function_name = "my-custom-transfer"          # Primary transfer function (GCS → S3)
 #   cleanup_function_name  = "my-custom-cleanup"           # Cleanup function for stale files
 #   scheduler_job_name     = "my-custom-cleanup-scheduler" # Cloud Scheduler job for cleanup

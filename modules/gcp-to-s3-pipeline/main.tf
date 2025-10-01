@@ -9,7 +9,7 @@ locals {
   pubsub_topic_id           = var.pubsub_topic_id != "" ? var.pubsub_topic_id : "${var.name}-export-topic-${random_id.suffix.hex}"
   pubsub_subscription_id    = var.pubsub_subscription_id != "" ? var.pubsub_subscription_id : "${var.name}-to-gcs-subscription-${random_id.suffix.hex}"
   logging_sink_id           = var.logging_sink_id != "" ? var.logging_sink_id : "${var.name}-export-to-s3-${random_id.suffix.hex}"
-  service_account_id        = var.service_account_id != "" ? var.service_account_id : "${var.name}-to-s3-fn-${random_id.suffix.hex}"
+  service_account_id        = var.service_account_id != "" ? var.service_account_id : "${var.name}-sa-${random_id.suffix.hex}"
   transfer_function_name    = var.transfer_function_name != "" ? var.transfer_function_name : "${var.name}-transfer-${random_id.suffix.hex}"
   cleanup_function_name     = var.cleanup_function_name != "" ? var.cleanup_function_name : "${var.name}-cleanup-${random_id.suffix.hex}"
   scheduler_job_name        = var.scheduler_job_name != "" ? var.scheduler_job_name : "${var.name}-cleanup-scheduler-${random_id.suffix.hex}"
