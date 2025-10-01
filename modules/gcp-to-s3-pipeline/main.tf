@@ -92,8 +92,8 @@ resource "google_pubsub_subscription" "log_to_gcs" {
     filename_datetime_format = "YYYY/MM/DD/hh/mm_ssZ_"
 
     # Batch settings for better aggregation
-    # Flushes when EITHER condition is met (2 minutes OR 10MB)
-    max_duration = "120s" # Maximum 2 minutes
+    # Flushes when EITHER condition is met (max_duration OR 10MB)
+    max_duration = "${var.max_batch_duration_seconds}s"
     max_bytes    = 10485760 # 10 MB
   }
 
@@ -187,6 +187,7 @@ resource "google_cloudfunctions2_function" "transfer_function" {
       AWS_ROLE_ARN  = aws_iam_role.s3_writer_role.arn
       AWS_REGION    = var.aws_region
       TARGET_BUCKET = local.target_bucket_name
+      TEMP_BUCKET   = google_storage_bucket.temp_bucket.name
       GCP_PROJECT   = var.project_id
     }
 

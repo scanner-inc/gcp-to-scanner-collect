@@ -1,6 +1,6 @@
 # GCP Logging to S3 Pipeline
 
-Automated pipeline that exports GCP Cloud Logging logs to Amazon S3 with 2-3 minute latency. Logs are batched in GCS temporarily, then transferred to S3 with efficient compression handling.
+Automated pipeline that exports GCP Cloud Logging logs to Amazon S3 with configurable latency (default 2-3 minutes). Logs are batched in GCS temporarily, then transferred to S3 with efficient compression handling.
 
 ## Overview
 
@@ -81,19 +81,10 @@ cp terraform.tfvars.example terraform.tfvars
 
 #### Step 1: Enable Shared Resources
 
-First, uncomment the `shared_gcp_resources` module in `main.tf`. This module contains resources that only need to exist once per GCP project:
+Note the `shared_gcp_resources` module in `main.tf`. This module contains resources that only need to exist once per GCP project:
 - API enablements (7 APIs)
 - GCS service account IAM permissions
 - Function source bucket and code uploads
-
-```hcl
-module "shared_gcp_resources" {
-  source = "./modules/shared-gcp-resources"
-
-  project_id = var.project_id
-  region     = var.region
-}
-```
 
 #### Step 2: Configure Pipeline Module(s)
 
@@ -117,7 +108,7 @@ Each pipeline module instance supports:
 **Required:**
 - `name`: Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs')
   - Must start with a letter, contain only lowercase letters, numbers, and hyphens
-  - 1-63 characters long
+  - 1-18 characters long
   - This name will be used to prefix all per-pipeline GCP and AWS resources
 - `shared_gcp_resources`: Shared GCP resources object from `module.shared_gcp_resources.all`
 
@@ -134,6 +125,7 @@ Each pipeline module instance supports:
 **Other Options:**
 - `log_filter`: Filter Cloud Logging entries
 - `log_prefix`: Path prefix for organizing logs in S3
+- `max_batch_duration_seconds`: Maximum duration before flushing batched logs to GCS (default: `120`, range: 60-600 seconds). Trade-off: lower values = more live logs but more files, higher values = fewer files but more delay
 - `force_destroy_buckets`: Allow deleting non-empty buckets (default: `false`)
 - `age_threshold_minutes`: Age threshold for cleanup function (default: `30`)
 
@@ -198,11 +190,11 @@ Once deployed, the pipeline works automatically:
 
 1. **Logs are generated** in your GCP project
 2. **Cloud Logging sink** routes matching logs to Pub/Sub topic (configurable via `log_filter` variable)
-3. **Push subscription** batches log entries and writes to GCS (every 2 minutes or 10MB of logs)
+3. **Push subscription** batches log entries and writes to GCS (default: every 2 minutes or 10MB, configurable via `max_batch_duration_seconds`)
 4. **Primary function** transfers batched files from GCS to S3 and deletes from GCS
 5. **Cleanup function** retries any stale files (>1 hour old) every 30 minutes
 
-Expected latency: **2-3 minutes** from log generation to S3 availability.
+Expected latency: **2-3 minutes** from log generation to S3 availability (with default 2-minute batching interval).
 
 ## Testing
 
@@ -251,15 +243,15 @@ gsutil ls gs://[GCS_BUCKET_NAME]/
 - Log entries are batched together (you should see fewer files than individual logs)
 - Files in S3 are gzipped (`.gz` extension or compressed content)
 - GCS bucket is empty or contains only recent files (files deleted after successful transfer)
-- Total latency from `gcloud logging write` to S3 availability: 2-3 minutes
+- Total latency from `gcloud logging write` to S3 availability: 2-3 minutes (with default settings)
 
 ### Batching Behavior Notes
 
 Batching behavior varies by log volume:
 
-- **Low volume projects**: Expect ~16 small objects per flush period (2 minutes), typically 2-15KB each. This is micro-batching behavior.
+- **Low volume projects**: Expect ~16 small objects per flush period (default 2 minutes, configurable via `max_batch_duration_seconds`), typically 2-15KB each. This is micro-batching behavior.
 - **High volume projects**: Objects will be larger as more logs accumulate before the time/size thresholds are met, resulting in better batching efficiency.
-- **Why this happens (conjecture)**: Pub/Sub likely distributes incoming messages across multiple internal workers/shards. Each shard may maintain its own batch window and flush independently when the `max_duration` (2 minutes) or `max_bytes` (10MB) threshold is reached. With low log volume, shards timeout before accumulating significant data.
+- **Why this happens (conjecture)**: Pub/Sub likely distributes incoming messages across multiple internal workers/shards. Each shard may maintain its own batch window and flush independently when the `max_duration` or `max_bytes` (10MB) threshold is reached. With low log volume, shards timeout before accumulating significant data.
 
 ## Monitoring
 

@@ -187,6 +187,8 @@ module "shared_gcp_resources" {
 #   log_filter = ""
 #   log_prefix = "custom-logs"
 #
+#   max_batch_duration_seconds = 60  # Flush logs every 1 minute (more live logs, more files)
+#
 #   force_destroy_buckets = var.force_destroy_buckets
 #
 #   # Scanner integration:

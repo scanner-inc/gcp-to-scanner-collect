@@ -21,6 +21,12 @@ def transfer_to_s3(cloud_event):
     bucket_name = data['bucket']
     object_name = data['name']
 
+    # Only process files from expected temp bucket:
+    expected_bucket = os.environ.get('TEMP_BUCKET')
+    if bucket_name != expected_bucket:
+        print(f"Security: Rejecting event from unexpected bucket '{bucket_name}' (expected: '{expected_bucket}')")
+        return
+
     print(f"Processing: gs://{bucket_name}/{object_name}")
 
     try:

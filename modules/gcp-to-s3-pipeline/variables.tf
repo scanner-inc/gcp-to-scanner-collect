@@ -64,6 +64,17 @@ variable "log_prefix" {
   default     = "logs"
 }
 
+variable "max_batch_duration_seconds" {
+  description = "Maximum duration in seconds before flushing batched logs to GCS (trade-off: lower = more live logs but more files, higher = fewer files but more delay)"
+  type        = number
+  default     = 120
+
+  validation {
+    condition     = var.max_batch_duration_seconds >= 60 && var.max_batch_duration_seconds <= 600
+    error_message = "max_batch_duration_seconds must be between 60 and 600 seconds (1-10 minutes)."
+  }
+}
+
 # Cleanup Configuration
 variable "age_threshold_minutes" {
   description = "Age threshold in minutes for cleanup function to consider files stale"
