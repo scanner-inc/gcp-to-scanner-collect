@@ -72,7 +72,6 @@ def transfer_to_s3(cloud_event):
                     source_bucket=f"gs://{result['source_bucket']}",
                     target_bucket=f"s3://{result['target_bucket']}"
                 )
-        # Errors are logged in transfer_blob_to_s3
 
     except Exception as e:
         log_structured(

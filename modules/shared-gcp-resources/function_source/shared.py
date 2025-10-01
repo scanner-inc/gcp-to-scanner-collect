@@ -52,7 +52,10 @@ def log_structured(message, severity='INFO', **kwargs):
     trace_id = get_trace_id()
     if trace_id:
         project_id = os.environ.get('GCP_PROJECT', os.environ.get('GOOGLE_CLOUD_PROJECT', ''))
-        entry['logging.googleapis.com/trace'] = f"projects/{project_id}/traces/{trace_id}"
+        if project_id:
+            entry['logging.googleapis.com/trace'] = f"projects/{project_id}/traces/{trace_id}"
+        else:
+            entry['trace_id_without_project'] = trace_id
 
     # Add any additional fields
     entry.update(kwargs)
@@ -301,10 +304,11 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
 
     except Exception as e:
         log_structured(
-            f"Transfer failed: {blob.name}",
+            "Transfer failed",
             severity='ERROR',
             error=str(e),
             object=blob.name,
             bucket=blob.bucket.name
         )
         return None
+
