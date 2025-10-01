@@ -139,7 +139,7 @@ module "shared_gcp_resources" {
 #   aws_account_id = var.aws_account_id
 #   aws_region     = var.aws_region
 #
-#   log_filter     = "protoPayload.serviceName=\"run.googleapis.com\""
+#   log_filter     = "logName:\"run.googleapis.com\""
 #   log_prefix     = "cloudrun-logs"
 #   # s3_bucket_name = "mycompany-gcp-cloudrun-logs"
 #
