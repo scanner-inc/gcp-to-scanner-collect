@@ -35,16 +35,6 @@ locals {
   ) : null
 }
 
-# Output useful GCP project info for validation
-output "gcp_project_info" {
-  description = "GCP project information"
-  value = {
-    project_id     = data.google_project.current.project_id
-    project_number = data.google_project.current.number
-    project_name   = data.google_project.current.name
-  }
-}
-
 # Random suffix for unique naming
 resource "random_id" "suffix" {
   byte_length = 4

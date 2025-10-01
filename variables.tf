@@ -31,47 +31,28 @@ variable "aws_profile" {
   default     = null
 }
 
-# Default Logging Configuration (can be overridden per-module)
-variable "log_filter" {
-  description = "Default filter for Cloud Logging sink (empty string = all logs)"
-  type        = string
-  default     = ""
-}
-
-variable "log_prefix" {
-  description = "Default prefix path for log files in GCS and S3"
-  type        = string
-  default     = "logs"
-}
-
-# Default S3 Bucket Configuration
-variable "s3_bucket_name" {
-  description = "Default S3 bucket name (optional)"
-  type        = string
-  default     = ""
-}
-
-variable "existing_s3_bucket_name" {
-  description = "Default existing S3 bucket name (optional)"
-  type        = string
-  default     = ""
-}
-
+# Global Configuration (shared across all pipelines)
 variable "force_destroy_buckets" {
   description = "Allow deletion of non-empty buckets (useful for testing/development)"
   type        = bool
   default     = false
 }
 
-# Default Scanner Integration
+variable "age_threshold_minutes" {
+  description = "Age threshold in minutes for cleanup function to consider files stale"
+  type        = number
+  default     = 30
+}
+
+# Scanner Integration (optional, shared across all pipelines)
 variable "scanner_sns_topic_arn" {
-  description = "Default SNS topic ARN for S3 object created notifications"
+  description = "SNS topic ARN for S3 object created notifications (shared across pipelines)"
   type        = string
   default     = ""
 }
 
 variable "scanner_role_arn" {
-  description = "Default scanner role ARN to grant S3 read permissions"
+  description = "Scanner role ARN to grant S3 read permissions (shared across pipelines)"
   type        = string
   default     = ""
 }

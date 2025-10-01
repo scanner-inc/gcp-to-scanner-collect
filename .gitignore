@@ -4,8 +4,8 @@ terraform.tfvars
 .terraform.tfstate.lock.info
 terraform.tfstate
 terraform.tfstate.backup
-cleanup_function.zip
-transfer_function.zip
+modules/gcp-to-s3-pipeline/cleanup_function.zip
+modules/gcp-to-s3-pipeline/transfer_function.zip
 
 # Test file for development
 test.tf

@@ -1,3 +1,8 @@
+# ============================================================================
+# Global Configuration
+# ============================================================================
+# These variables are shared across all pipeline instances
+
 # GCP Configuration
 project_id = "your-gcp-project-id"
 region     = "us-central1"
@@ -7,69 +12,21 @@ aws_account_id = "123456789012"
 aws_region     = "us-east-1"
 # aws_profile  = "my-profile"  # Optional: specify AWS CLI profile to use (defaults to default profile)
 
-# ============================================================================
-# Single Pipeline Configuration
-# ============================================================================
-# Use these variables if you're deploying a single pipeline (uncomment the
-# "all_logs_pipeline" module in main.tf)
-
-# Logging Configuration
-# Filter for Cloud Logging sink - empty string means all logs
-# Examples:
-#   log_filter = ""  # All logs
-#   log_filter = "resource.type=\"k8s_container\""  # Only Kubernetes logs
-#   log_filter = "severity>=ERROR"  # Only errors and above
-#   log_filter = "logName:\"cloudaudit.googleapis.com\""  # Only audit logs
-#   log_filter = "protoPayload.serviceName=\"compute.googleapis.com\""  # Only Compute Engine audit logs
-log_filter = ""
-
-# Log File Organization
-# Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')
-# Files will be organized as: {log_prefix}/YYYY/MM/DD/hh/mm_ssZ_<hash>.jsonl
-# log_prefix = ""
-
-# S3 Bucket Configuration
-# Option 1: Create a new bucket with a custom name
-# s3_bucket_name = "mycompany-gcp-audit-logs"
-
-# Option 2: Use an existing bucket (e.g., reuse an existing scanner bucket)
-# When using existing_s3_bucket_name:
-#   - You MUST set a log_prefix (to namespace your logs)
-#   - You CANNOT use scanner_sns_topic_arn or scanner_role_arn (we assume the bucket is already set up)
-#   - Terraform will still create an AWS IAM role that can write to this bucket
-# existing_s3_bucket_name = "my-existing-scanner-bucket"
-
-# If neither is specified, a bucket will be auto-generated as: logging-s3-target-{account_id}-{random_suffix}
-
-# Bucket Cleanup Configuration
+# Global Settings
 # Allow Terraform to delete non-empty buckets during destroy (useful for testing/development)
 # WARNING: In production, leave this as false to prevent accidental data loss
-# force_destroy_buckets = true
+force_destroy_buckets = false
 
-# Scanner Integration (Optional)
-# If you want to integrate with scanner, specify BOTH variables below.
-# When both are provided:
-#   1. The S3 bucket will send notifications to the SNS topic on s3:ObjectCreated:* events
-#   2. The scanner role will be granted read permissions to the S3 bucket
-#
-# Note: Both variables must be specified together, or neither should be specified.
-# Specifying only one will cause a validation error.
-#
-# Replace the following with your actual configuration (especially region + account number must be changed)
+# Age threshold in minutes for cleanup function to consider files stale (default: 30)
+# age_threshold_minutes = 30
+
+# Scanner Integration (Optional - applies to all pipelines)
+# Uncomment and configure to enable scanner integration for all S3 buckets
 # scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"
 # scanner_role_arn      = "arn:aws:iam::123456789012:role/scnr-ScannerRole"
 
 # ============================================================================
-# Multiple Pipeline Configuration
+# Pipeline Configuration
 # ============================================================================
-# If you want to deploy multiple pipelines for different log types, uncomment
-# and configure the relevant modules in main.tf instead. Each module can have
-# its own configuration, overriding these defaults as needed.
-#
-# Example modules provided in main.tf:
-#   - audit_logs_pipeline: For cloud audit logs
-#   - k8s_logs_pipeline: For Kubernetes logs
-#   - function_logs_pipeline: For Cloud Function logs
-#
-# When using multiple pipelines, you typically want different S3 buckets or
-# different log_prefix values for each pipeline.
+# Configure your pipelines in main.tf by uncommenting and customizing the
+# example module instances. See main.tf for detailed examples.

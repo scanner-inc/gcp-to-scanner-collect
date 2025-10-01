@@ -197,16 +197,16 @@ terraform apply
 ├── variables.tf                      # Root-level variables
 ├── terraform.tfvars                  # Your configuration (gitignored)
 ├── terraform.tfvars.example          # Example configuration
-├── modules/
-│   └── gcp-to-s3-pipeline/          # Reusable pipeline module
-│       ├── main.tf                   # Module resources
-│       ├── variables.tf              # Module variables
-│       └── outputs.tf                # Module outputs
-└── function_source/                  # Cloud Function code (shared by all instances)
-    ├── transfer_function.py
-    ├── cleanup_function.py
-    ├── shared.py
-    └── requirements.txt
+└── modules/
+    └── gcp-to-s3-pipeline/          # Reusable, self-contained pipeline module
+        ├── main.tf                   # Module resources
+        ├── variables.tf              # Module variables
+        ├── outputs.tf                # Module outputs
+        └── function_source/          # Cloud Function code
+            ├── transfer_function.py
+            ├── cleanup_function.py
+            ├── shared.py
+            └── requirements.txt
 ```
 
 ## Usage
