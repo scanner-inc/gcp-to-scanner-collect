@@ -17,9 +17,6 @@ aws_region     = "us-east-1"
 # WARNING: In production, leave this as false to prevent accidental data loss
 force_destroy_buckets = false
 
-# Age threshold in minutes for cleanup function to consider files stale (default: 30)
-# age_threshold_minutes = 30
-
 # Scanner Integration (Optional - applies to all pipelines)
 # Uncomment and configure to enable scanner integration for all S3 buckets
 # scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"

@@ -28,20 +28,48 @@ provider "aws" {
   profile = var.aws_profile
 }
 
+# ============================================================================
+# Shared GCP Resources
+# ============================================================================
+# This module contains resources that only need to exist once per GCP project:
+# - API enablements
+# - GCS service account permissions
+# - Function source bucket and code uploads
+#
+# All pipeline modules depend on this shared module.
+
+# module "shared_gcp_resources" {
+#   source = "./modules/shared-gcp-resources"
+#
+#   project_id = var.project_id
+#   region     = var.region
+#
+#   # Optional: Override function source bucket name
+#   # source_bucket_name = "my-custom-gcf-source"
+# }
+
+# ============================================================================
+# Pipeline Modules
+# ============================================================================
+# Each pipeline instance requires the shared_gcp_resources module above.
+# Uncomment the shared module first, then uncomment one or more pipelines below.
+
 # Example: Single pipeline for all logs
 # Uncomment and configure to deploy a single pipeline
 # module "all_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
-#   name               = "all-logs"
-#   project_id         = var.project_id
-#   region             = var.region
-#   aws_account_id     = var.aws_account_id
-#   aws_region         = var.aws_region
-#   aws_profile        = var.aws_profile
+#   name                 = "all-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
 #
-#   log_filter         = ""
-#   log_prefix         = "logs"
+#   project_id     = var.project_id
+#   region         = var.region
+#   aws_account_id = var.aws_account_id
+#   aws_region     = var.aws_region
+#   aws_profile    = var.aws_profile
+#
+#   log_filter = ""
+#   log_prefix = "logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
@@ -57,7 +85,9 @@ provider "aws" {
 # module "audit_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
-#   name           = "audit-logs"
+#   name                 = "audit-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
 #   project_id     = var.project_id
 #   region         = var.region
 #   aws_account_id = var.aws_account_id
@@ -78,7 +108,9 @@ provider "aws" {
 # module "k8s_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
-#   name           = "k8s-logs"
+#   name                 = "k8s-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
 #   project_id     = var.project_id
 #   region         = var.region
 #   aws_account_id = var.aws_account_id
@@ -95,7 +127,9 @@ provider "aws" {
 # module "cloudrun_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
-#   name           = "cloudrun-logs"
+#   name                 = "cloudrun-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
 #   project_id     = var.project_id
 #   region         = var.region
 #   aws_account_id = var.aws_account_id
@@ -112,7 +146,9 @@ provider "aws" {
 # module "logs_to_existing_bucket" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
-#   name           = "gcp-logs"
+#   name                 = "gcp-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
 #   project_id     = var.project_id
 #   region         = var.region
 #   aws_account_id = var.aws_account_id
@@ -127,12 +163,13 @@ provider "aws" {
 # }
 
 # Example: Fully customized resource names (pedantic - explicitly name every resource)
-# This example shows all 11 resources that get created and how to override their names
+# This example shows all 10 per-pipeline resources that get created and how to override their names
 # module "custom_names_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
 #   # Required base name (used as fallback for any resources not explicitly named below)
-#   name = "custom"
+#   name                 = "custom"
+#   shared_gcp_resources = module.shared_gcp_resources.all
 #
 #   project_id     = var.project_id
 #   region         = var.region
@@ -147,20 +184,20 @@ provider "aws" {
 #   # Optional: Explicitly override every single resource name
 #   # (normally you'd just rely on the 'name' parameter to prefix everything)
 #
-#   # GCP Resources (8 total):
-#   gcs_temp_bucket_name      = "my-custom-temp-bucket"           # GCS temporary bucket for Pub/Sub batching
-#   gcs_source_bucket_name    = "my-custom-gcf-source"            # GCS bucket for Cloud Function source code
-#   pubsub_topic_id           = "my-custom-export-topic"          # Pub/Sub topic for Cloud Logging sink
-#   pubsub_subscription_id    = "my-custom-to-gcs-sub"            # Pub/Sub subscription to write to GCS
-#   logging_sink_id           = "my-custom-export-sink"           # Cloud Logging sink to Pub/Sub
-#   service_account_id        = "my-custom-fn-sa"                 # Service account for Cloud Functions
-#   transfer_function_name    = "my-custom-transfer"              # Primary transfer function (GCS → S3)
-#   cleanup_function_name     = "my-custom-cleanup"               # Cleanup function for stale files
-#   scheduler_job_name        = "my-custom-cleanup-scheduler"     # Cloud Scheduler job for cleanup
+#   # GCP Resources (7 total):
+#   gcs_temp_bucket_name   = "my-custom-temp-bucket"       # GCS temporary bucket for Pub/Sub batching
+#   pubsub_topic_id        = "my-custom-export-topic"      # Pub/Sub topic for Cloud Logging sink
+#   pubsub_subscription_id = "my-custom-to-gcs-sub"        # Pub/Sub subscription to write to GCS
+#   logging_sink_id        = "my-custom-export-sink"       # Cloud Logging sink to Pub/Sub
+#   service_account_id     = "my-custom-fn-sa"             # Service account for Cloud Functions
+#   transfer_function_name = "my-custom-transfer"          # Primary transfer function (GCS → S3)
+#   cleanup_function_name  = "my-custom-cleanup"           # Cleanup function for stale files
+#   scheduler_job_name     = "my-custom-cleanup-scheduler" # Cloud Scheduler job for cleanup
 #
 #   # AWS Resources (2 total):
-#   aws_role_name             = "my-custom-gcp-s3-writer"         # IAM role for GCP to assume via OIDC
-#   s3_bucket_name            = "my-custom-s3-bucket"             # S3 target bucket (auto-generated if not specified)
+#   aws_role_name  = "my-custom-gcp-s3-writer" # IAM role for GCP to assume via OIDC
+#   s3_bucket_name = "my-custom-s3-bucket"     # S3 target bucket (auto-generated if not specified)
 #
 #   # Note: The IAM role policy name is automatically derived from aws_role_name as: {aws_role_name}-policy
+#   # Note: The function source bucket is shared across all pipelines (see shared_gcp_resources module)
 # }

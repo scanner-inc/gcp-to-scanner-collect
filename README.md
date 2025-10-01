@@ -79,26 +79,47 @@ cp terraform.tfvars.example terraform.tfvars
 
 ### 2. Configure Your Pipeline(s)
 
-Open `main.tf` and uncomment one or more example module configurations:
+#### Step 1: Enable Shared Resources
+
+First, uncomment the `shared_gcp_resources` module in `main.tf`. This module contains resources that only need to exist once per GCP project:
+- API enablements (7 APIs)
+- GCS service account IAM permissions
+- Function source bucket and code uploads
+
+```hcl
+module "shared_gcp_resources" {
+  source = "./modules/shared-gcp-resources"
+
+  project_id = var.project_id
+  region     = var.region
+}
+```
+
+#### Step 2: Configure Pipeline Module(s)
+
+Then uncomment one or more pipeline module configurations:
 
 - **Single pipeline** (`all_logs_pipeline`): Captures all logs to one S3 bucket
 - **Multiple pipelines** (`audit_logs_pipeline`, `k8s_logs_pipeline`, etc.): Separates different log types into different S3 buckets
 - **Existing S3 bucket** (`logs_to_existing_bucket`): Uses a pre-existing S3 bucket
-- **Custom resource names** (`custom_names_pipeline`): Shows all 11 resources and how to override their names
+- **Custom resource names** (`custom_names_pipeline`): Shows all resources and how to override their names
 
-Each module requires a `name` parameter that prefixes all resources for easy identification in GCP and AWS consoles.
+Each pipeline module requires:
+- `name`: Unique identifier for this pipeline (prefixes all per-pipeline resources)
+- `shared_gcp_resources`: Pass `module.shared_gcp_resources.all`
 
 See `main.tf` for detailed examples with inline documentation.
 
 #### Module Configuration Options
 
-Each module instance supports:
+Each pipeline module instance supports:
 
 **Required:**
 - `name`: Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs')
   - Must start with a letter, contain only lowercase letters, numbers, and hyphens
   - 1-63 characters long
-  - This name will be used to prefix all GCP and AWS resources created by this module
+  - This name will be used to prefix all per-pipeline GCP and AWS resources
+- `shared_gcp_resources`: Shared GCP resources object from `module.shared_gcp_resources.all`
 
 **S3 Bucket Options (choose one):**
 - `s3_bucket_name`: Create a new bucket with a custom name
@@ -118,7 +139,6 @@ Each module instance supports:
 
 **Advanced Resource Naming (optional overrides):**
 - `gcs_temp_bucket_name`: Override GCS temporary bucket name
-- `gcs_source_bucket_name`: Override GCS function source bucket name
 - `pubsub_topic_id`: Override Pub/Sub topic name
 - `pubsub_subscription_id`: Override Pub/Sub subscription name
 - `logging_sink_id`: Override Cloud Logging sink name
@@ -127,6 +147,8 @@ Each module instance supports:
 - `cleanup_function_name`: Override cleanup function name
 - `scheduler_job_name`: Override scheduler job name
 - `aws_role_name`: Override AWS IAM role name
+
+Note: The function source bucket is shared across all pipelines and managed by the `shared_gcp_resources` module.
 
 ### 3. Initialize Terraform
 
@@ -150,20 +172,24 @@ terraform apply
 
 ```
 .
-├── main.tf                           # Root configuration with module instances
-├── variables.tf                      # Root-level variables
-├── terraform.tfvars                  # Your configuration (gitignored)
-├── terraform.tfvars.example          # Example configuration
+├── main.tf                            # Root configuration with module instances
+├── variables.tf                       # Root-level variables
+├── terraform.tfvars                   # Your configuration (gitignored)
+├── terraform.tfvars.example           # Example configuration
 └── modules/
-    └── gcp-to-s3-pipeline/          # Reusable, self-contained pipeline module
-        ├── main.tf                   # Module resources
-        ├── variables.tf              # Module variables
-        ├── outputs.tf                # Module outputs
-        └── function_source/          # Cloud Function code
-            ├── transfer_function.py
-            ├── cleanup_function.py
-            ├── shared.py
-            └── requirements.txt
+    ├── shared-gcp-resources/          # Shared GCP resources (one per project)
+    │   ├── main.tf                    # API enablements, source bucket, code uploads
+    │   ├── variables.tf               # Module variables
+    │   ├── outputs.tf                 # Module outputs
+    │   └── function_source/           # Cloud Function code (shared across pipelines)
+    │       ├── transfer_function.py
+    │       ├── cleanup_function.py
+    │       ├── shared.py
+    │       └── requirements.txt
+    └── gcp-to-s3-pipeline/            # Reusable pipeline module (one per log type)
+        ├── main.tf                    # Per-pipeline resources
+        ├── variables.tf               # Module variables
+        └── outputs.tf                 # Module outputs
 ```
 
 ## Usage

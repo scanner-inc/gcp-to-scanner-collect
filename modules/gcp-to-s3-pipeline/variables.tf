@@ -9,6 +9,18 @@ variable "name" {
   }
 }
 
+# Shared GCP Resources
+variable "shared_gcp_resources" {
+  description = "Shared GCP resources from the shared-gcp-resources module (pass module.shared_gcp_resources.all)"
+  type = object({
+    source_bucket             = string
+    transfer_object           = string
+    cleanup_object            = string
+    gcs_service_account_email = string
+    enabled_apis              = list(string)
+  })
+}
+
 # GCP Configuration
 variable "project_id" {
   description = "GCP Project ID"
@@ -131,12 +143,6 @@ variable "scanner_role_arn" {
 
 variable "gcs_temp_bucket_name" {
   description = "Override name for GCS temporary bucket (default: {name}-temp-{project_id}-{suffix})"
-  type        = string
-  default     = ""
-}
-
-variable "gcs_source_bucket_name" {
-  description = "Override name for GCS function source bucket (default: {name}-gcf-source-{project_id}-{suffix})"
   type        = string
   default     = ""
 }

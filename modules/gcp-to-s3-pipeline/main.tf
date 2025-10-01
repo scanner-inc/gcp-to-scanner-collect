@@ -6,7 +6,6 @@ locals {
 
   # Computed resource names - use override if provided, otherwise use sensible default based on var.name
   gcs_temp_bucket_name      = var.gcs_temp_bucket_name != "" ? var.gcs_temp_bucket_name : "${var.name}-temp-${var.project_id}-${random_id.suffix.hex}"
-  gcs_source_bucket_name    = var.gcs_source_bucket_name != "" ? var.gcs_source_bucket_name : "${var.name}-gcf-source-${var.project_id}-${random_id.suffix.hex}"
   pubsub_topic_id           = var.pubsub_topic_id != "" ? var.pubsub_topic_id : "${var.name}-export-topic-${random_id.suffix.hex}"
   pubsub_subscription_id    = var.pubsub_subscription_id != "" ? var.pubsub_subscription_id : "${var.name}-to-gcs-subscription-${random_id.suffix.hex}"
   logging_sink_id           = var.logging_sink_id != "" ? var.logging_sink_id : "${var.name}-export-to-s3-${random_id.suffix.hex}"
@@ -53,49 +52,7 @@ resource "random_id" "suffix" {
 }
 
 # ============== GCP Resources ==============
-
-# Enable required APIs
-resource "google_project_service" "logging" {
-  service                    = "logging.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "cloudfunctions" {
-  service                    = "cloudfunctions.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "cloudbuild" {
-  service                    = "cloudbuild.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "pubsub" {
-  service                    = "pubsub.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "cloudrun" {
-  service                    = "run.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "cloudscheduler" {
-  service                    = "cloudscheduler.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
-
-resource "google_project_service" "eventarc" {
-  service                    = "eventarc.googleapis.com"
-  disable_dependent_services = false
-  disable_on_destroy         = false
-}
+# Note: API enablements and GCS service account are now in shared-gcp-resources module
 
 # GCS Bucket for temporary log batching
 resource "google_storage_bucket" "temp_bucket" {
@@ -115,30 +72,9 @@ resource "google_storage_bucket" "temp_bucket" {
   }
 }
 
-# GCS Bucket for Cloud Functions source code
-resource "google_storage_bucket" "function_source_bucket" {
-  name          = local.gcs_source_bucket_name
-  location      = var.region
-  force_destroy = true # Safe to force destroy - content is versioned in this repo
-}
-
 # Pub/Sub Topic for log sink
 resource "google_pubsub_topic" "log_sink_topic" {
   name = local.pubsub_topic_id
-
-  depends_on = [google_project_service.pubsub]
-}
-
-# Get GCS service account for Eventarc
-data "google_storage_project_service_account" "gcs_account" {
-  project = var.project_id
-}
-
-# Grant GCS service account Pub/Sub Publisher role for Eventarc triggers
-resource "google_project_iam_member" "gcs_pubsub_publisher" {
-  project = var.project_id
-  role    = "roles/pubsub.publisher"
-  member  = "serviceAccount:${data.google_storage_project_service_account.gcs_account.email_address}"
 }
 
 # Pub/Sub Push Subscription to GCS
@@ -192,8 +128,6 @@ resource "google_logging_project_sink" "log_to_pubsub" {
 
   # Use unique writer identity
   unique_writer_identity = true
-
-  depends_on = [google_project_service.logging]
 }
 
 # Grant the log sink's writer identity permission to publish to Pub/Sub
@@ -223,61 +157,6 @@ resource "google_project_iam_member" "function_eventarc_receiver" {
   member  = "serviceAccount:${google_service_account.function_sa.email}"
 }
 
-# Create deployment packages
-data "archive_file" "transfer_function_source" {
-  type        = "zip"
-  output_path = "${path.module}/transfer_function.zip"
-
-  source {
-    content  = file("${path.module}/function_source/transfer_function.py")
-    filename = "main.py"
-  }
-
-  source {
-    content  = file("${path.module}/function_source/shared.py")
-    filename = "shared.py"
-  }
-
-  source {
-    content  = file("${path.module}/function_source/requirements.txt")
-    filename = "requirements.txt"
-  }
-}
-
-data "archive_file" "cleanup_function_source" {
-  type        = "zip"
-  output_path = "${path.module}/cleanup_function.zip"
-
-  source {
-    content  = file("${path.module}/function_source/cleanup_function.py")
-    filename = "main.py"
-  }
-
-  source {
-    content  = file("${path.module}/function_source/shared.py")
-    filename = "shared.py"
-  }
-
-  source {
-    content  = file("${path.module}/function_source/requirements.txt")
-    filename = "requirements.txt"
-  }
-}
-
-# Upload transfer function source to GCS
-resource "google_storage_bucket_object" "transfer_function_source" {
-  name   = "transfer-function-${data.archive_file.transfer_function_source.output_md5}.zip"
-  bucket = google_storage_bucket.function_source_bucket.name
-  source = data.archive_file.transfer_function_source.output_path
-}
-
-# Upload cleanup function source to GCS
-resource "google_storage_bucket_object" "cleanup_function_source" {
-  name   = "cleanup-function-${data.archive_file.cleanup_function_source.output_md5}.zip"
-  bucket = google_storage_bucket.function_source_bucket.name
-  source = data.archive_file.cleanup_function_source.output_path
-}
-
 # Primary Transfer Cloud Function (Gen 2)
 # Triggered by GCS object creation in temp bucket
 resource "google_cloudfunctions2_function" "transfer_function" {
@@ -292,8 +171,8 @@ resource "google_cloudfunctions2_function" "transfer_function" {
 
     source {
       storage_source {
-        bucket = google_storage_bucket.function_source_bucket.name
-        object = google_storage_bucket_object.transfer_function_source.name
+        bucket = var.shared_gcp_resources.source_bucket
+        object = var.shared_gcp_resources.transfer_object
       }
     }
   }
@@ -327,12 +206,7 @@ resource "google_cloudfunctions2_function" "transfer_function" {
   }
 
   depends_on = [
-    google_project_service.cloudfunctions,
-    google_project_service.cloudbuild,
-    google_project_service.cloudrun,
-    google_project_service.eventarc,
-    google_project_iam_member.function_eventarc_receiver,
-    google_project_iam_member.gcs_pubsub_publisher
+    google_project_iam_member.function_eventarc_receiver
   ]
 }
 
@@ -350,8 +224,8 @@ resource "google_cloudfunctions2_function" "cleanup_function" {
 
     source {
       storage_source {
-        bucket = google_storage_bucket.function_source_bucket.name
-        object = google_storage_bucket_object.cleanup_function_source.name
+        bucket = var.shared_gcp_resources.source_bucket
+        object = var.shared_gcp_resources.cleanup_object
       }
     }
   }
@@ -373,12 +247,6 @@ resource "google_cloudfunctions2_function" "cleanup_function" {
 
     service_account_email = google_service_account.function_sa.email
   }
-
-  depends_on = [
-    google_project_service.cloudfunctions,
-    google_project_service.cloudbuild,
-    google_project_service.cloudrun
-  ]
 }
 
 # Cloud Scheduler Job to trigger cleanup function every 30 minutes
@@ -398,8 +266,6 @@ resource "google_cloud_scheduler_job" "cleanup_job" {
       service_account_email = google_service_account.function_sa.email
     }
   }
-
-  depends_on = [google_project_service.cloudscheduler]
 }
 
 # Grant the function's service account permission to invoke itself
