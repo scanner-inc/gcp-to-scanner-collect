@@ -118,6 +118,7 @@ Uncomment and configure multiple modules in `main.tf`. Each pipeline can have di
 module "audit_logs_pipeline" {
   source = "./modules/gcp-to-s3-pipeline"
 
+  name           = "audit-logs"
   project_id     = var.project_id
   region         = var.region
   aws_account_id = var.aws_account_id
@@ -138,6 +139,7 @@ module "audit_logs_pipeline" {
 module "k8s_logs_pipeline" {
   source = "./modules/gcp-to-s3-pipeline"
 
+  name           = "k8s-logs"
   project_id     = var.project_id
   region         = var.region
   aws_account_id = var.aws_account_id
@@ -155,10 +157,16 @@ module "k8s_logs_pipeline" {
 
 Each module instance supports:
 
+**Required:**
+- `name`: Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs')
+  - Must start with a letter, contain only lowercase letters, numbers, and hyphens
+  - 1-63 characters long
+  - This name will be used to prefix all GCP and AWS resources created by this module
+
 **S3 Bucket Options (choose one):**
 - `s3_bucket_name`: Create a new bucket with a custom name
 - `existing_s3_bucket_name`: Use an existing S3 bucket (must also set `log_prefix`)
-- Neither: Auto-generates bucket name as `logging-s3-target-{account_id}-{random_suffix}`
+- Neither: Auto-generates bucket name as `{name}-s3-target-{account_id}-{random_suffix}`
 
 **Scanner Integration (optional):**
 - `scanner_sns_topic_arn`: SNS topic ARN for S3 event notifications
@@ -170,6 +178,18 @@ Each module instance supports:
 - `log_prefix`: Path prefix for organizing logs in S3
 - `force_destroy_buckets`: Allow deleting non-empty buckets (default: `false`)
 - `age_threshold_minutes`: Age threshold for cleanup function (default: `30`)
+
+**Advanced Resource Naming (optional overrides):**
+- `gcs_temp_bucket_name`: Override GCS temporary bucket name
+- `gcs_source_bucket_name`: Override GCS function source bucket name
+- `pubsub_topic_id`: Override Pub/Sub topic name
+- `pubsub_subscription_id`: Override Pub/Sub subscription name
+- `logging_sink_id`: Override Cloud Logging sink name
+- `service_account_id`: Override service account name
+- `transfer_function_name`: Override transfer function name
+- `cleanup_function_name`: Override cleanup function name
+- `scheduler_job_name`: Override scheduler job name
+- `aws_role_name`: Override AWS IAM role name
 
 ### 3. Initialize Terraform
 

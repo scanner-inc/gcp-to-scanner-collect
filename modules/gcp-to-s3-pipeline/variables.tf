@@ -1,3 +1,14 @@
+# Pipeline Identification
+variable "name" {
+  description = "Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs')"
+  type        = string
+
+  validation {
+    condition     = can(regex("^[a-z][a-z0-9-]{0,62}$", var.name))
+    error_message = "Name must start with a letter, contain only lowercase letters, numbers, and hyphens, and be 1-63 characters long."
+  }
+}
+
 # GCP Configuration
 variable "project_id" {
   description = "GCP Project ID"
@@ -113,4 +124,67 @@ variable "scanner_role_arn" {
     condition     = (var.scanner_sns_topic_arn == "") == (var.scanner_role_arn == "")
     error_message = "Both scanner_sns_topic_arn and scanner_role_arn must be specified together, or neither should be specified."
   }
+}
+
+# Optional Resource Name Overrides
+# If not specified, sensible defaults based on 'name' will be used
+
+variable "gcs_temp_bucket_name" {
+  description = "Override name for GCS temporary bucket (default: {name}-temp-{project_id}-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "gcs_source_bucket_name" {
+  description = "Override name for GCS function source bucket (default: {name}-gcf-source-{project_id}-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "pubsub_topic_id" {
+  description = "Override ID for Pub/Sub topic (default: {name}-export-topic-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "pubsub_subscription_id" {
+  description = "Override ID for Pub/Sub subscription (default: {name}-to-gcs-subscription-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "logging_sink_id" {
+  description = "Override ID for Cloud Logging sink (default: {name}-export-to-s3-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "service_account_id" {
+  description = "Override ID for service account (default: {name}-to-s3-fn-{suffix}, max 30 chars)"
+  type        = string
+  default     = ""
+}
+
+variable "transfer_function_name" {
+  description = "Override name for transfer Cloud Function (default: {name}-transfer-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "cleanup_function_name" {
+  description = "Override name for cleanup Cloud Function (default: {name}-cleanup-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "scheduler_job_name" {
+  description = "Override name for Cloud Scheduler job (default: {name}-cleanup-scheduler-{suffix})"
+  type        = string
+  default     = ""
+}
+
+variable "aws_role_name" {
+  description = "Override name for AWS IAM role (default: gcp-{name}-s3-writer-{suffix})"
+  type        = string
+  default     = ""
 }

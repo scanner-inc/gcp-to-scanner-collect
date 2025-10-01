@@ -6,6 +6,7 @@ terraform.tfstate
 terraform.tfstate.backup
 modules/gcp-to-s3-pipeline/cleanup_function.zip
 modules/gcp-to-s3-pipeline/transfer_function.zip
+modules/gcp-to-s3-pipeline/function_source/__pycache__/
 
 # Test file for development
 test.tf

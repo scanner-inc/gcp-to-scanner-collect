@@ -24,9 +24,3 @@ force_destroy_buckets = false
 # Uncomment and configure to enable scanner integration for all S3 buckets
 # scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"
 # scanner_role_arn      = "arn:aws:iam::123456789012:role/scnr-ScannerRole"
-
-# ============================================================================
-# Pipeline Configuration
-# ============================================================================
-# Configure your pipelines in main.tf by uncommenting and customizing the
-# example module instances. See main.tf for detailed examples.

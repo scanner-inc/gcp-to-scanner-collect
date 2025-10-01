@@ -16,52 +16,10 @@ What this validates:
 import io
 import gzip
 import sys
-import zlib
 
-# Import only the GzipStreamWrapper class without loading the whole module
-# This avoids needing boto3/google-cloud-storage installed locally
-class GzipStreamWrapper:
-    """Wraps a file-like object to compress data on-the-fly using gzip"""
-    def __init__(self, fileobj, chunk_size=65536):
-        self.fileobj = fileobj
-        self.chunk_size = chunk_size
-        # wbits=16+15 creates a gzip-compatible compressor
-        # 15 is max window bits, +16 adds gzip header/trailer
-        self.compressor = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
-        self.buffer = b''
-        self.finished = False
-
-    def read(self, size=-1):
-        """Read and compress data in chunks"""
-        while len(self.buffer) < size or size == -1:
-            if self.finished:
-                break
-
-            # Read a chunk from source
-            chunk = self.fileobj.read(self.chunk_size)
-
-            if not chunk:
-                # No more data, finalize compression
-                self.buffer += self.compressor.flush()
-                self.finished = True
-                break
-
-            # Compress the chunk
-            self.buffer += self.compressor.compress(chunk)
-
-            # If we have enough data and size is specified, break
-            if size != -1 and len(self.buffer) >= size:
-                break
-
-        # Return requested amount of data
-        if size == -1:
-            result = self.buffer
-            self.buffer = b''
-        else:
-            result = self.buffer[:size]
-            self.buffer = self.buffer[size:]
-
-        return result
+# Import the actual implementation from shared.py
+# The GCS/S3 client imports in shared.py won't cause issues since we're only importing the class
+from shared import GzipStreamWrapper
 
 
 def test_gzip_stream_wrapper_basic():

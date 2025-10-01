@@ -3,6 +3,18 @@ locals {
   scanner_sns_provided  = var.scanner_sns_topic_arn != ""
   scanner_role_provided = var.scanner_role_arn != ""
   using_existing_bucket = var.existing_s3_bucket_name != ""
+
+  # Computed resource names - use override if provided, otherwise use sensible default based on var.name
+  gcs_temp_bucket_name      = var.gcs_temp_bucket_name != "" ? var.gcs_temp_bucket_name : "${var.name}-temp-${var.project_id}-${random_id.suffix.hex}"
+  gcs_source_bucket_name    = var.gcs_source_bucket_name != "" ? var.gcs_source_bucket_name : "${var.name}-gcf-source-${var.project_id}-${random_id.suffix.hex}"
+  pubsub_topic_id           = var.pubsub_topic_id != "" ? var.pubsub_topic_id : "${var.name}-export-topic-${random_id.suffix.hex}"
+  pubsub_subscription_id    = var.pubsub_subscription_id != "" ? var.pubsub_subscription_id : "${var.name}-to-gcs-subscription-${random_id.suffix.hex}"
+  logging_sink_id           = var.logging_sink_id != "" ? var.logging_sink_id : "${var.name}-export-to-s3-${random_id.suffix.hex}"
+  service_account_id        = var.service_account_id != "" ? var.service_account_id : "${var.name}-to-s3-fn-${random_id.suffix.hex}"
+  transfer_function_name    = var.transfer_function_name != "" ? var.transfer_function_name : "${var.name}-transfer-${random_id.suffix.hex}"
+  cleanup_function_name     = var.cleanup_function_name != "" ? var.cleanup_function_name : "${var.name}-cleanup-${random_id.suffix.hex}"
+  scheduler_job_name        = var.scheduler_job_name != "" ? var.scheduler_job_name : "${var.name}-cleanup-scheduler-${random_id.suffix.hex}"
+  aws_role_name             = var.aws_role_name != "" ? var.aws_role_name : "gcp-${var.name}-s3-writer-${random_id.suffix.hex}"
 }
 
 # Validate GCP project exists and is accessible
@@ -87,7 +99,7 @@ resource "google_project_service" "eventarc" {
 
 # GCS Bucket for temporary log batching
 resource "google_storage_bucket" "temp_bucket" {
-  name          = "logging-temp-${var.project_id}-${random_id.suffix.hex}"
+  name          = local.gcs_temp_bucket_name
   location      = var.region
   force_destroy = var.force_destroy_buckets
 
@@ -105,14 +117,14 @@ resource "google_storage_bucket" "temp_bucket" {
 
 # GCS Bucket for Cloud Functions source code
 resource "google_storage_bucket" "function_source_bucket" {
-  name          = "gcf-source-${var.project_id}-${random_id.suffix.hex}"
+  name          = local.gcs_source_bucket_name
   location      = var.region
   force_destroy = true # Safe to force destroy - content is versioned in this repo
 }
 
 # Pub/Sub Topic for log sink
 resource "google_pubsub_topic" "log_sink_topic" {
-  name = "log-export-topic-${random_id.suffix.hex}"
+  name = local.pubsub_topic_id
 
   depends_on = [google_project_service.pubsub]
 }
@@ -133,7 +145,7 @@ resource "google_project_iam_member" "gcs_pubsub_publisher" {
 # Note: This requires setting up a Cloud Storage service agent with proper permissions
 # The subscription will batch messages and write them to GCS
 resource "google_pubsub_subscription" "log_to_gcs" {
-  name  = "log-to-gcs-subscription-${random_id.suffix.hex}"
+  name  = local.pubsub_subscription_id
   topic = google_pubsub_topic.log_sink_topic.name
 
   # Push to Cloud Storage
@@ -172,7 +184,7 @@ resource "google_storage_bucket_iam_member" "pubsub_gcs_reader" {
 
 # Cloud Logging Sink to Pub/Sub
 resource "google_logging_project_sink" "log_to_pubsub" {
-  name        = "log-export-to-s3-${random_id.suffix.hex}"
+  name        = local.logging_sink_id
   destination = "pubsub.googleapis.com/${google_pubsub_topic.log_sink_topic.id}"
 
   # Filter: empty string means all logs
@@ -193,7 +205,7 @@ resource "google_pubsub_topic_iam_member" "log_sink_publisher" {
 
 # Service Account for Cloud Functions
 resource "google_service_account" "function_sa" {
-  account_id   = "logging-to-s3-fn-${random_id.suffix.hex}"
+  account_id   = local.service_account_id
   display_name = "Cloud Function Logging to S3 Service Account"
 }
 
@@ -269,7 +281,7 @@ resource "google_storage_bucket_object" "cleanup_function_source" {
 # Primary Transfer Cloud Function (Gen 2)
 # Triggered by GCS object creation in temp bucket
 resource "google_cloudfunctions2_function" "transfer_function" {
-  name     = "log-transfer-${random_id.suffix.hex}"
+  name     = local.transfer_function_name
   location = var.region
 
   description = "Transfers log files from GCS to S3 with compression handling"
@@ -327,7 +339,7 @@ resource "google_cloudfunctions2_function" "transfer_function" {
 # Cleanup Cloud Function (Gen 2)
 # Triggered by Cloud Scheduler every 30 minutes
 resource "google_cloudfunctions2_function" "cleanup_function" {
-  name     = "log-cleanup-${random_id.suffix.hex}"
+  name     = local.cleanup_function_name
   location = var.region
 
   description = "Retries stale log files older than 1 hour"
@@ -371,7 +383,7 @@ resource "google_cloudfunctions2_function" "cleanup_function" {
 
 # Cloud Scheduler Job to trigger cleanup function every 30 minutes
 resource "google_cloud_scheduler_job" "cleanup_job" {
-  name             = "log-cleanup-scheduler-${random_id.suffix.hex}"
+  name             = local.scheduler_job_name
   description      = "Trigger cleanup function every 30 minutes"
   schedule         = "*/30 * * * *"
   time_zone        = "UTC"
@@ -420,7 +432,7 @@ data "aws_s3_bucket" "existing_bucket" {
 # S3 Target Bucket (only create if not using existing)
 resource "aws_s3_bucket" "target_bucket" {
   count         = local.using_existing_bucket ? 0 : 1
-  bucket        = var.s3_bucket_name != "" ? var.s3_bucket_name : "logging-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
+  bucket        = var.s3_bucket_name != "" ? var.s3_bucket_name : "${var.name}-s3-target-${var.aws_account_id}-${random_id.suffix.hex}"
   force_destroy = var.force_destroy_buckets
 }
 
@@ -465,7 +477,7 @@ locals {
 
 # IAM Role for GCP Cloud Function to assume via OIDC
 resource "aws_iam_role" "s3_writer_role" {
-  name = "gcp-logging-s3-writer-${random_id.suffix.hex}"
+  name = local.aws_role_name
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -480,7 +492,7 @@ resource "aws_iam_role" "s3_writer_role" {
           StringEquals = {
             "accounts.google.com:sub" = google_service_account.function_sa.unique_id
             "accounts.google.com:aud" = google_service_account.function_sa.unique_id
-            "accounts.google.com:oaud" = "arn:aws:iam::${var.aws_account_id}:role/gcp-logging-s3-writer-${random_id.suffix.hex}"
+            "accounts.google.com:oaud" = "arn:aws:iam::${var.aws_account_id}:role/${local.aws_role_name}"
           }
         }
       }
@@ -490,7 +502,7 @@ resource "aws_iam_role" "s3_writer_role" {
 
 # IAM Policy for S3 access
 resource "aws_iam_role_policy" "s3_writer_policy" {
-  name = "s3-writer-policy-${random_id.suffix.hex}"
+  name = "${local.aws_role_name}-policy"
   role = aws_iam_role.s3_writer_role.id
 
   policy = jsonencode({
@@ -516,7 +528,7 @@ resource "aws_iam_role_policy" "s3_writer_policy" {
 # IAM Policy for Scanner Role to read from S3 (only for created bucket)
 resource "aws_iam_role_policy" "scanner_read_policy" {
   count = !local.using_existing_bucket && local.scanner_role_provided ? 1 : 0
-  name  = "scanner-s3-read-policy-${random_id.suffix.hex}"
+  name  = "${var.name}-scanner-s3-read-policy-${random_id.suffix.hex}"
   role  = split("/", var.scanner_role_arn)[1]
 
   policy = jsonencode({
