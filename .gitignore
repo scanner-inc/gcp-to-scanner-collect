@@ -6,3 +6,6 @@ terraform.tfstate
 terraform.tfstate.backup
 cleanup_function.zip
 transfer_function.zip
+
+# Test file for development
+test.tf

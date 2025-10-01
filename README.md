@@ -56,52 +56,157 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 
 ## Setup
 
+This project supports two deployment modes:
+
+1. **Single Pipeline** - Deploy one pipeline for all logs or a specific log filter
+2. **Multiple Pipelines** - Deploy separate pipelines for different log types (audit logs, K8s logs, function logs, etc.)
+
 ### 1. Configure Variables
 
-Copy `terraform.tfvars.example` to `terraform.tfvars` and modify:
+Copy `terraform.tfvars.example` to `terraform.tfvars`:
 
 ```bash
 cp terraform.tfvars.example terraform.tfvars
 # Edit terraform.tfvars with your configuration
 ```
 
-#### Key Configuration Options
+#### Required Variables
 
-**Required:**
 - `project_id`: Your GCP project ID
 - `aws_account_id`: Your AWS account ID
+- `region`: GCP region (default: `us-central1`)
+- `aws_region`: AWS region (default: `us-east-1`)
+
+### 2. Choose Deployment Mode
+
+#### Option A: Single Pipeline
+
+Uncomment the `all_logs_pipeline` module in `main.tf`:
+
+```hcl
+module "all_logs_pipeline" {
+  source = "./modules/gcp-to-s3-pipeline"
+
+  project_id         = var.project_id
+  region             = var.region
+  aws_account_id     = var.aws_account_id
+  aws_region         = var.aws_region
+
+  log_filter         = var.log_filter  # Configure in terraform.tfvars
+  log_prefix         = var.log_prefix
+  s3_bucket_name     = var.s3_bucket_name
+
+  force_destroy_buckets = var.force_destroy_buckets
+
+  # Optional scanner integration
+  scanner_sns_topic_arn = var.scanner_sns_topic_arn
+  scanner_role_arn      = var.scanner_role_arn
+}
+```
+
+Configure the pipeline in `terraform.tfvars`:
+- `log_filter`: Filter for logs (empty = all logs)
+- `s3_bucket_name`: Custom bucket name (optional)
+- `log_prefix`: Path prefix in S3 (default: `"logs"`)
+
+#### Option B: Multiple Pipelines
+
+Uncomment and configure multiple modules in `main.tf`. Each pipeline can have different configurations:
+
+```hcl
+# Audit logs pipeline
+module "audit_logs_pipeline" {
+  source = "./modules/gcp-to-s3-pipeline"
+
+  project_id     = var.project_id
+  region         = var.region
+  aws_account_id = var.aws_account_id
+  aws_region     = var.aws_region
+
+  log_filter     = "logName:\"cloudaudit.googleapis.com\""
+  log_prefix     = "audit-logs"
+  s3_bucket_name = "mycompany-gcp-audit-logs"
+
+  force_destroy_buckets = var.force_destroy_buckets
+
+  # Optional scanner integration for audit logs
+  scanner_sns_topic_arn = var.scanner_sns_topic_arn
+  scanner_role_arn      = var.scanner_role_arn
+}
+
+# Kubernetes logs pipeline
+module "k8s_logs_pipeline" {
+  source = "./modules/gcp-to-s3-pipeline"
+
+  project_id     = var.project_id
+  region         = var.region
+  aws_account_id = var.aws_account_id
+  aws_region     = var.aws_region
+
+  log_filter     = "resource.type=\"k8s_container\""
+  log_prefix     = "k8s-logs"
+  s3_bucket_name = "mycompany-gcp-k8s-logs"
+
+  force_destroy_buckets = var.force_destroy_buckets
+}
+```
+
+#### Module Configuration Options
+
+Each module instance supports:
 
 **S3 Bucket Options (choose one):**
-- `s3_bucket_name`: Create a new bucket with a custom name (e.g., `"mycompany-gcp-audit-logs"`)
+- `s3_bucket_name`: Create a new bucket with a custom name
 - `existing_s3_bucket_name`: Use an existing S3 bucket (must also set `log_prefix`)
 - Neither: Auto-generates bucket name as `logging-s3-target-{account_id}-{random_suffix}`
 
 **Scanner Integration (optional):**
 - `scanner_sns_topic_arn`: SNS topic ARN for S3 event notifications
 - `scanner_role_arn`: IAM role ARN to grant S3 read permissions
-- Both must be specified together to enable scanner integration
+- Both must be specified together
 
 **Other Options:**
-- `log_filter`: Filter Cloud Logging entries (empty = all logs, or specify filters for audit logs, specific services, etc.)
-- `log_prefix`: Path prefix for organizing logs in S3 (default: `"logs"`)
-- `force_destroy_buckets`: Set to `true` for testing/dev to allow deleting non-empty buckets (default: `false` for production safety)
+- `log_filter`: Filter Cloud Logging entries
+- `log_prefix`: Path prefix for organizing logs in S3
+- `force_destroy_buckets`: Allow deleting non-empty buckets (default: `false`)
+- `age_threshold_minutes`: Age threshold for cleanup function (default: `30`)
 
-### 2. Initialize Terraform
+### 3. Initialize Terraform
 
 ```bash
 terraform init
 ```
 
-### 3. Review Plan
+### 4. Review Plan
 
 ```bash
 terraform plan
 ```
 
-### 4. Deploy Infrastructure
+### 5. Deploy Infrastructure
 
 ```bash
 terraform apply
+```
+
+## Project Structure
+
+```
+.
+├── main.tf                           # Root configuration with module instances
+├── variables.tf                      # Root-level variables
+├── terraform.tfvars                  # Your configuration (gitignored)
+├── terraform.tfvars.example          # Example configuration
+├── modules/
+│   └── gcp-to-s3-pipeline/          # Reusable pipeline module
+│       ├── main.tf                   # Module resources
+│       ├── variables.tf              # Module variables
+│       └── outputs.tf                # Module outputs
+└── function_source/                  # Cloud Function code (shared by all instances)
+    ├── transfer_function.py
+    ├── cleanup_function.py
+    ├── shared.py
+    └── requirements.txt
 ```
 
 ## Usage

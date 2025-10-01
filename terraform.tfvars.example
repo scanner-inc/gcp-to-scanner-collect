@@ -7,6 +7,12 @@ aws_account_id = "123456789012"
 aws_region     = "us-east-1"
 # aws_profile  = "my-profile"  # Optional: specify AWS CLI profile to use (defaults to default profile)
 
+# ============================================================================
+# Single Pipeline Configuration
+# ============================================================================
+# Use these variables if you're deploying a single pipeline (uncomment the
+# "all_logs_pipeline" module in main.tf)
+
 # Logging Configuration
 # Filter for Cloud Logging sink - empty string means all logs
 # Examples:
@@ -52,3 +58,18 @@ log_filter = ""
 # Replace the following with your actual configuration (especially region + account number must be changed)
 # scanner_sns_topic_arn = "arn:aws:sns:us-east-1:123456789012:scnr-LogsBucketEventNotificationTopic"
 # scanner_role_arn      = "arn:aws:iam::123456789012:role/scnr-ScannerRole"
+
+# ============================================================================
+# Multiple Pipeline Configuration
+# ============================================================================
+# If you want to deploy multiple pipelines for different log types, uncomment
+# and configure the relevant modules in main.tf instead. Each module can have
+# its own configuration, overriding these defaults as needed.
+#
+# Example modules provided in main.tf:
+#   - audit_logs_pipeline: For cloud audit logs
+#   - k8s_logs_pipeline: For Kubernetes logs
+#   - function_logs_pipeline: For Cloud Function logs
+#
+# When using multiple pipelines, you typically want different S3 buckets or
+# different log_prefix values for each pipeline.
