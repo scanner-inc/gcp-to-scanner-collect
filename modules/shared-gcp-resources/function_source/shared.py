@@ -2,6 +2,7 @@
 Shared utilities for GCS to S3 transfer functions
 """
 import os
+import json
 import zlib
 import boto3
 import urllib.request
@@ -17,6 +18,48 @@ credentials, project = google.auth.default()
 authed_session = AuthorizedSession(credentials)
 
 
+def get_trace_id():
+    """Extract trace ID from Flask request context
+
+    Cloud Functions Gen 2 uses Flask under the hood. This works for both
+    HTTP-triggered and CloudEvent-triggered functions.
+    """
+    try:
+        from flask import request, has_request_context
+        if has_request_context():
+            trace_header = request.headers.get('X-Cloud-Trace-Context', '')
+            if trace_header and '/' in trace_header:
+                return trace_header.split('/')[0]
+    except (ImportError, RuntimeError):
+        pass
+    return None
+
+
+def log_structured(message, severity='INFO', **kwargs):
+    """Output structured JSON log for Cloud Logging
+
+    Args:
+        message: Log message
+        severity: Log severity (INFO, ERROR, WARNING, etc)
+        **kwargs: Additional fields to include in log
+    """
+    entry = {
+        'message': message,
+        'severity': severity,
+    }
+
+    # Add trace for correlation with request logs
+    trace_id = get_trace_id()
+    if trace_id:
+        project_id = os.environ.get('GCP_PROJECT', os.environ.get('GOOGLE_CLOUD_PROJECT', ''))
+        entry['logging.googleapis.com/trace'] = f"projects/{project_id}/traces/{trace_id}"
+
+    # Add any additional fields
+    entry.update(kwargs)
+
+    print(json.dumps(entry))
+
+
 class GzipStreamWrapper:
     """Wraps a file-like object to compress data on-the-fly using gzip"""
     def __init__(self, fileobj, chunk_size=65536):
@@ -27,6 +70,7 @@ class GzipStreamWrapper:
         self.compressor = zlib.compressobj(wbits=16 + zlib.MAX_WBITS)
         self.buffer = b''
         self.finished = False
+        self.bytes_written = 0  # Track compressed bytes output
 
     def read(self, size=-1):
         """Read and compress data in chunks"""
@@ -58,6 +102,7 @@ class GzipStreamWrapper:
             result = self.buffer[:size]
             self.buffer = self.buffer[size:]
 
+        self.bytes_written += len(result)
         return result
 
 
@@ -75,7 +120,12 @@ def get_gcp_identity_token(audience):
         response = urllib.request.urlopen(req)
         return response.read().decode('utf-8')
     except Exception as e:
-        print(f"Error getting identity token from metadata service: {e}")
+        log_structured(
+            "Failed to get identity token from metadata service",
+            severity='ERROR',
+            error=str(e),
+            audience=audience
+        )
         raise
 
 
@@ -130,6 +180,7 @@ class RawGCSStream:
         self.raw = self.response.raw
         self.buffer = b''
         self.finished = False
+        self.bytes_written = 0  # Track bytes output
 
     def read(self, size=-1):
         """Read raw bytes from GCS without decompression"""
@@ -139,6 +190,7 @@ class RawGCSStream:
                 result = self.buffer + self.raw.read()
                 self.buffer = b''
                 self.finished = True
+                self.bytes_written += len(result)
                 return result
 
             # Read in chunks until we have enough data
@@ -152,10 +204,11 @@ class RawGCSStream:
             # Return requested amount
             result = self.buffer[:size]
             self.buffer = self.buffer[size:]
+            self.bytes_written += len(result)
             return result
 
         except Exception as e:
-            print(f"Error reading from GCS: {e}")
+            log_structured("Error reading from GCS", severity='ERROR', error=str(e))
             return b''
 
     def close(self):
@@ -172,34 +225,29 @@ class RawGCSStream:
 def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'):
     """
     Core transfer logic: stream from GCS to S3 with compression handling
-    Returns True if successful (transferred or already exists), False on error
+    Returns dict with success status and metadata, or None on error
     """
     try:
         object_name = blob.name
 
         # Check if object already exists in S3
-        # Note: HeadObject returns 404 during uploads, so we won't delete prematurely
         if check_s3_object_exists(s3_client, target_bucket, object_name):
-            print(f"  Object already exists in S3: {object_name}, deleting from GCS")
             blob.delete()
-            return True
+            return {'status': 'already_exists', 'object': object_name}
 
         # Determine content type based on file extension
         if object_name.endswith('.jsonl') or object_name.endswith('.ndjson'):
             content_type = 'application/x-ndjson'
         else:
-            # Fall back to blob's content type or default to octet-stream
             content_type = blob.content_type or 'application/octet-stream'
 
         # Get content encoding
         gcs_content_encoding = blob.content_encoding
-        is_gzipped = gcs_content_encoding == 'gzip' if gcs_content_encoding else False
+        was_gzipped = gcs_content_encoding == 'gzip' if gcs_content_encoding else False
+        source_size = blob.size
 
-        print(f"  GCS content-encoding: {gcs_content_encoding}, size: {blob.size} bytes")
-
-        # If already gzipped in GCS, try to stream the raw compressed bytes
-        if is_gzipped:
-            print(f"  Streaming gzipped file from GCS (requesting gzip encoding)")
+        # If already gzipped in GCS, stream the raw compressed bytes
+        if was_gzipped:
             with RawGCSStream(blob.bucket.name, blob.name) as gcs_stream:
                 s3_client.upload_fileobj(
                     gcs_stream,
@@ -216,14 +264,11 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                         }
                     }
                 )
+                output_size = gcs_stream.bytes_written
         else:
             # Stream and compress on-the-fly using zlib
-            # Use blob.open() to let GCS handle any other content encodings transparently
-            print(f"  Streaming and compressing {blob.size} bytes on-the-fly")
             with blob.open('rb') as gcs_stream:
-                # Wrap the stream with our gzip compressor
                 compressed_stream = GzipStreamWrapper(gcs_stream)
-
                 s3_client.upload_fileobj(
                     compressed_stream,
                     target_bucket,
@@ -239,17 +284,27 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                         }
                     }
                 )
-
-        print(f"  Successfully uploaded to S3: s3://{target_bucket}/{object_name}")
+                output_size = compressed_stream.bytes_written
 
         # Delete from GCS after successful upload
-        # Safe to delete because S3 PutObject/upload_fileobj only makes object visible
-        # after the upload is complete
         blob.delete()
-        print(f"  Deleted from GCS: gs://{blob.bucket.name}/{object_name}")
 
-        return True
+        return {
+            'status': 'success',
+            'object': object_name,
+            'gzip_input': was_gzipped,
+            'input_size': source_size,
+            'output_size': output_size,
+            'source_bucket': blob.bucket.name,
+            'target_bucket': target_bucket
+        }
 
     except Exception as e:
-        print(f"  Error transferring {blob.name}: {str(e)}")
-        return False
+        log_structured(
+            f"Transfer failed: {blob.name}",
+            severity='ERROR',
+            error=str(e),
+            object=blob.name,
+            bucket=blob.bucket.name
+        )
+        return None

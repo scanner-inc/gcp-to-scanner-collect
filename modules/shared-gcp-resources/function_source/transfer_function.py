@@ -4,7 +4,7 @@ Triggered on GCS object creation in the temporary batching bucket.
 """
 import os
 import functions_framework
-from shared import gcs_client, get_aws_credentials, transfer_blob_to_s3
+from shared import gcs_client, get_aws_credentials, transfer_blob_to_s3, log_structured
 import boto3
 
 
@@ -21,20 +21,22 @@ def transfer_to_s3(cloud_event):
     bucket_name = data['bucket']
     object_name = data['name']
 
-    # Only process files from expected temp bucket:
+    # Only process files from expected temp bucket
     expected_bucket = os.environ.get('TEMP_BUCKET')
     if bucket_name != expected_bucket:
-        print(f"Security: Rejecting event from unexpected bucket '{bucket_name}' (expected: '{expected_bucket}')")
+        log_structured(
+            "Rejected: unexpected bucket",
+            severity='WARNING',
+            bucket=bucket_name,
+            expected=expected_bucket,
+            object=object_name
+        )
         return
-
-    print(f"Processing: gs://{bucket_name}/{object_name}")
 
     try:
         # Get blob reference
         bucket = gcs_client.bucket(bucket_name)
         blob = bucket.blob(object_name)
-
-        # Reload to get current metadata
         blob.reload()
 
         # Get AWS credentials via OIDC
@@ -51,13 +53,33 @@ def transfer_to_s3(cloud_event):
 
         target_bucket = os.environ['TARGET_BUCKET']
 
-        # Use shared transfer logic
-        if transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='transfer-function'):
-            print(f"Successfully processed: {object_name}")
-        else:
-            print(f"Failed to process: {object_name}")
+        # Transfer to S3
+        result = transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='transfer-function')
+
+        if result:
+            if result['status'] == 'already_exists':
+                log_structured(
+                    "Already in S3",
+                    object=result['object']
+                )
+            else:
+                log_structured(
+                    "Transferred to S3",
+                    object=result['object'],
+                    gzip_input=result['gzip_input'],
+                    input_size=result['input_size'],
+                    output_size=result['output_size'],
+                    source_bucket=f"gs://{result['source_bucket']}",
+                    target_bucket=f"s3://{result['target_bucket']}"
+                )
+        # Errors are logged in transfer_blob_to_s3
 
     except Exception as e:
-        print(f"Error processing file: {str(e)}")
+        log_structured(
+            "Error in transfer function",
+            severity='ERROR',
+            error=str(e),
+            object=object_name
+        )
         # Don't raise - we don't want retries on this function
         # The cleanup function will retry stale files instead
