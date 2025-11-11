@@ -53,9 +53,58 @@ module "shared_gcp_resources" {
 # ============================================================================
 # Each pipeline instance requires the shared_gcp_resources module above.
 # Uncomment the shared module first, then uncomment one or more pipelines below.
+#
+# Most common configurations are listed first: GCP Audit logs (new or existing bucket).
+# Additional log types and advanced examples follow below.
+
+# GCP Audit logs to a new S3 bucket (Scanner integration enabled)
+# module "audit_logs_pipeline" {
+#   source = "./modules/gcp-to-s3-pipeline"
+#
+#   name                 = "audit-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
+#   project_id     = var.project_id
+#   region         = var.region
+#   aws_account_id = var.aws_account_id
+#   aws_region     = var.aws_region
+#
+#   log_filter     = "logName:\"cloudaudit.googleapis.com\""
+#   log_prefix     = "gcp/audit"
+#   # s3_bucket_name = "mycompany-gcp-audit-logs"
+#
+#   force_destroy_buckets = var.force_destroy_buckets
+#
+#   # Scanner integration:
+#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
+#   scanner_role_arn      = var.scanner_role_arn
+# }
+
+# GCP Audit logs to an existing S3 bucket
+# module "audit_logs_to_existing_bucket" {
+#   source = "./modules/gcp-to-s3-pipeline"
+#
+#   name                 = "audit-logs"
+#   shared_gcp_resources = module.shared_gcp_resources.all
+#
+#   project_id     = var.project_id
+#   region         = var.region
+#   aws_account_id = var.aws_account_id
+#   aws_region     = var.aws_region
+#
+#   log_filter              = "logName:\"cloudaudit.googleapis.com\""
+#   log_prefix              = "gcp/audit"
+#   existing_s3_bucket_name = "my-existing-scanner-bucket"
+#
+#   # Cannot use scanner variables with existing bucket
+#   # (assume bucket is already configured)
+# }
+
+# ============================================================================
+# Additional Pipeline Examples
+# ============================================================================
 
 # Example: Single pipeline for all logs
-# Uncomment and configure to deploy a single pipeline
 # module "all_logs_pipeline" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
@@ -69,7 +118,7 @@ module "shared_gcp_resources" {
 #   aws_profile    = var.aws_profile
 #
 #   log_filter = ""
-#   log_prefix = "logs"
+#   log_prefix = "gcp/all"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
 #
@@ -80,29 +129,6 @@ module "shared_gcp_resources" {
 
 # Example: Multiple pipelines for different log types
 # Uncomment and configure to deploy multiple pipelines
-
-# Pipeline for audit logs
-# module "audit_logs_pipeline" {
-#   source = "./modules/gcp-to-s3-pipeline"
-#
-#   name                 = "audit-logs"
-#   shared_gcp_resources = module.shared_gcp_resources.all
-#
-#   project_id     = var.project_id
-#   region         = var.region
-#   aws_account_id = var.aws_account_id
-#   aws_region     = var.aws_region
-#
-#   log_filter     = "logName:\"cloudaudit.googleapis.com\""
-#   log_prefix     = "audit-logs"
-#   # s3_bucket_name = "mycompany-gcp-audit-logs"
-#
-#   force_destroy_buckets = var.force_destroy_buckets
-#
-#   # Scanner integration:
-#   scanner_sns_topic_arn = var.scanner_sns_topic_arn
-#   scanner_role_arn      = var.scanner_role_arn
-# }
 
 # Pipeline for Kubernetes logs
 # module "k8s_logs_pipeline" {
@@ -117,7 +143,7 @@ module "shared_gcp_resources" {
 #   aws_region     = var.aws_region
 #
 #   log_filter     = "resource.type=\"k8s_container\""
-#   log_prefix     = "k8s-logs"
+#   log_prefix     = "gcp/k8s"
 #   # s3_bucket_name = "mycompany-gcp-k8s-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
@@ -140,7 +166,7 @@ module "shared_gcp_resources" {
 #   aws_region     = var.aws_region
 #
 #   log_filter     = "logName:\"run.googleapis.com\""
-#   log_prefix     = "cloudrun-logs"
+#   log_prefix     = "gcp/cloudrun"
 #   # s3_bucket_name = "mycompany-gcp-cloudrun-logs"
 #
 #   force_destroy_buckets = var.force_destroy_buckets
@@ -150,7 +176,7 @@ module "shared_gcp_resources" {
 #   scanner_role_arn      = var.scanner_role_arn
 # }
 
-# Example: Using an existing S3 bucket
+# Example: Using an existing S3 bucket for all logs
 # module "logs_to_existing_bucket" {
 #   source = "./modules/gcp-to-s3-pipeline"
 #
@@ -163,7 +189,7 @@ module "shared_gcp_resources" {
 #   aws_region     = var.aws_region
 #
 #   log_filter              = ""
-#   log_prefix              = "gcp-logs"  # Required when using existing bucket
+#   log_prefix              = "gcp/all"  # Required when using existing bucket
 #   existing_s3_bucket_name = "my-existing-scanner-bucket"
 #
 #   # Cannot use scanner variables with existing bucket
@@ -185,7 +211,7 @@ module "shared_gcp_resources" {
 #   aws_region     = var.aws_region
 #
 #   log_filter = ""
-#   log_prefix = "custom-logs"
+#   log_prefix = "gcp/custom"
 #
 #   max_batch_duration_seconds = 60  # Flush logs every 1 minute (more live logs, more files)
 #

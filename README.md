@@ -106,7 +106,7 @@ See `main.tf` for detailed examples with inline documentation.
 Each pipeline module instance supports:
 
 **Required:**
-- `name`: Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs')
+- `name`: Name for this pipeline (used to prefix all resource names for easy identification, e.g., 'audit-logs', 'k8s-logs', 'cloudrun-logs')
   - Must start with a letter, contain only lowercase letters, numbers, and hyphens
   - 1-18 characters long
   - This name will be used to prefix all per-pipeline GCP and AWS resources
@@ -124,7 +124,7 @@ Each pipeline module instance supports:
 
 **Other Options:**
 - `log_filter`: Filter Cloud Logging entries
-- `log_prefix`: Path prefix for organizing logs in S3
+- `log_prefix`: Path prefix for organizing logs in S3 (default: `gcp/all`, examples: `gcp/audit`, `gcp/k8s`, `gcp/cloudrun`)
 - `max_batch_duration_seconds`: Maximum duration before flushing batched logs to GCS (default: `120`, range: 60-600 seconds). Trade-off: lower values = more live logs but more files, higher values = fewer files but more delay
 - `force_destroy_buckets`: Allow deleting non-empty buckets (default: `false`)
 - `age_threshold_minutes`: Age threshold for cleanup function (default: `30`)

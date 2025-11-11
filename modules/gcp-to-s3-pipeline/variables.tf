@@ -59,9 +59,9 @@ variable "log_filter" {
 }
 
 variable "log_prefix" {
-  description = "Prefix path for log files in GCS and S3 (e.g., 'logs' or 'audit-logs')"
+  description = "Prefix path for log files in GCS and S3 (e.g., 'gcp/all' or 'gcp/audit')"
   type        = string
-  default     = "logs"
+  default     = "gcp/all"
 }
 
 variable "max_batch_duration_seconds" {
