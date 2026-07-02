@@ -8,6 +8,7 @@ output "all" {
     source_bucket   = google_storage_bucket.function_source.name
     transfer_object = google_storage_bucket_object.transfer_function_source.name
     cleanup_object  = google_storage_bucket_object.cleanup_function_source.name
+    mirror_object   = google_storage_bucket_object.mirror_function_source.name
 
     # GCS service account (for reference/debugging)
     gcs_service_account_email = data.google_storage_project_service_account.gcs_account.email_address
@@ -21,6 +22,7 @@ output "all" {
       google_project_service.cloudrun.service,
       google_project_service.cloudscheduler.service,
       google_project_service.eventarc.service,
+      google_project_service.monitoring.service,
     ]
   }
 }
@@ -39,4 +41,9 @@ output "transfer_function_object" {
 output "cleanup_function_object" {
   description = "Name of the cleanup function source object in GCS"
   value       = google_storage_bucket_object.cleanup_function_source.name
+}
+
+output "mirror_function_object" {
+  description = "Name of the mirror function source object in GCS"
+  value       = google_storage_bucket_object.mirror_function_source.name
 }

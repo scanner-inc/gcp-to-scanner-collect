@@ -27,6 +27,11 @@ output "cleanup_function_name" {
   description = "Name of the cleanup Cloud Function"
 }
 
+output "cleanup_scheduler_job_name" {
+  value       = google_cloud_scheduler_job.cleanup_job.name
+  description = "Name of the Cloud Scheduler job that triggers the cleanup function"
+}
+
 output "pubsub_topic_name" {
   value       = google_pubsub_topic.log_sink_topic.name
   description = "Name of the Pub/Sub topic"

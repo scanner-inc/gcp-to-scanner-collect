@@ -17,7 +17,7 @@ import io
 import gzip
 import sys
 
-from shared import GzipStreamWrapper
+from shared import GzipStreamWrapper, key_passes_filter
 
 
 def test_gzip_stream_wrapper_basic():
@@ -166,9 +166,56 @@ def test_gzip_stream_wrapper_multiple_reads():
     print(f"✓ Multiple reads: {len(chunks)} chunks, decompresses correctly")
 
 
+def test_key_passes_filter_no_filters():
+    """With no filters configured, every key passes"""
+    assert key_passes_filter("any/key.json", prefixes=[], include_regex="", exclude_regex="")
+    assert key_passes_filter("", prefixes=[], include_regex="", exclude_regex="")
+
+    print("✓ No filters: all keys pass")
+
+
+def test_key_passes_filter_prefixes():
+    """Prefix filter: key must start with one of the prefixes"""
+    prefixes = ["logs/", "exports/"]
+    assert key_passes_filter("logs/2026/07/01/file.json", prefixes=prefixes, include_regex="", exclude_regex="")
+    assert key_passes_filter("exports/dump.csv", prefixes=prefixes, include_regex="", exclude_regex="")
+    assert not key_passes_filter("other/file.json", prefixes=prefixes, include_regex="", exclude_regex="")
+    assert not key_passes_filter("mylogs/file.json", prefixes=prefixes, include_regex="", exclude_regex="")
+
+    print("✓ Prefix filter works")
+
+
+def test_key_passes_filter_include_regex():
+    """Include regex: key must match"""
+    assert key_passes_filter("logs/file.json.gz", prefixes=[], include_regex=r"\.json(\.gz)?$", exclude_regex="")
+    assert key_passes_filter("logs/file.json", prefixes=[], include_regex=r"\.json(\.gz)?$", exclude_regex="")
+    assert not key_passes_filter("logs/file.txt", prefixes=[], include_regex=r"\.json(\.gz)?$", exclude_regex="")
+
+    print("✓ Include regex filter works")
+
+
+def test_key_passes_filter_exclude_regex():
+    """Exclude regex: key must not match"""
+    assert not key_passes_filter("logs/file.tmp", prefixes=[], include_regex="", exclude_regex=r"\.tmp$")
+    assert key_passes_filter("logs/file.json", prefixes=[], include_regex="", exclude_regex=r"\.tmp$")
+
+    print("✓ Exclude regex filter works")
+
+
+def test_key_passes_filter_combined():
+    """All configured filters must pass"""
+    kwargs = dict(prefixes=["logs/"], include_regex=r"\.json$", exclude_regex=r"/_temporary/")
+    assert key_passes_filter("logs/2026/file.json", **kwargs)
+    assert not key_passes_filter("exports/2026/file.json", **kwargs)  # wrong prefix
+    assert not key_passes_filter("logs/2026/file.csv", **kwargs)      # fails include
+    assert not key_passes_filter("logs/_temporary/file.json", **kwargs)  # matches exclude
+
+    print("✓ Combined filters work")
+
+
 def run_all_tests():
     """Run all tests and report results"""
-    print("Running GzipStreamWrapper tests...\n")
+    print("Running GzipStreamWrapper and key filter tests...\n")
 
     tests = [
         test_gzip_stream_wrapper_basic,
@@ -178,6 +225,11 @@ def run_all_tests():
         test_gzip_compatibility_with_gunzip,
         test_gzip_stream_wrapper_binary_data,
         test_gzip_stream_wrapper_multiple_reads,
+        test_key_passes_filter_no_filters,
+        test_key_passes_filter_prefixes,
+        test_key_passes_filter_include_regex,
+        test_key_passes_filter_exclude_regex,
+        test_key_passes_filter_combined,
     ]
 
     passed = 0

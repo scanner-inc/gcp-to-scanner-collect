@@ -2,6 +2,7 @@
 Shared utilities for GCS to S3 transfer functions
 """
 import os
+import re
 import json
 import zlib
 import boto3
@@ -152,6 +153,35 @@ def get_aws_credentials():
     return response['Credentials']
 
 
+def key_passes_filter(key, prefixes=None, include_regex=None, exclude_regex=None):
+    """Check whether an object key passes the configured key path filters.
+
+    Filters default to the KEY_PREFIXES (comma-separated), KEY_INCLUDE_REGEX,
+    and KEY_EXCLUDE_REGEX environment variables. All configured filters must
+    pass; unset filters are skipped.
+    """
+    if prefixes is None:
+        prefixes = [p for p in os.environ.get('KEY_PREFIXES', '').split(',') if p]
+    if include_regex is None:
+        include_regex = os.environ.get('KEY_INCLUDE_REGEX', '')
+    if exclude_regex is None:
+        exclude_regex = os.environ.get('KEY_EXCLUDE_REGEX', '')
+
+    if prefixes and not any(key.startswith(p) for p in prefixes):
+        return False
+    if include_regex and not re.search(include_regex, key):
+        return False
+    if exclude_regex and re.search(exclude_regex, key):
+        return False
+    return True
+
+
+def build_dest_key(object_name):
+    """Build the S3 destination key: S3_KEY_PREFIX + object name"""
+    prefix = os.environ.get('S3_KEY_PREFIX', '').strip('/')
+    return f"{prefix}/{object_name}" if prefix else object_name
+
+
 def check_s3_object_exists(s3_client, bucket, key):
     """Check if an object already exists in S3"""
     try:
@@ -225,18 +255,34 @@ class RawGCSStream:
         self.close()
 
 
-def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'):
+# File extensions that are already compressed - upload as-is, no gzip re-compression
+ALREADY_COMPRESSED_EXTENSIONS = ('.gz', '.gzip', '.zip', '.bz2', '.zst', '.snappy', '.parquet')
+
+
+def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown',
+                        dest_key=None, delete_source=True):
     """
     Core transfer logic: stream from GCS to S3 with compression handling
     Returns dict with success status and metadata, or None on error
+
+    Args:
+        transferred_by: identifier recorded in S3 object metadata
+        dest_key: S3 key to write to (defaults to the GCS object name)
+        delete_source: delete the GCS blob after successful upload (False for
+            mirror pipelines that copy from customer-owned buckets)
     """
     try:
         object_name = blob.name
+        target_key = dest_key if dest_key else object_name
 
-        # Check if object already exists in S3
-        if check_s3_object_exists(s3_client, target_bucket, object_name):
-            blob.delete()
-            return {'status': 'already_exists', 'object': object_name}
+        # First write wins: an existing S3 key is never re-uploaded, even if
+        # the GCS object was overwritten with new content since. Scanner
+        # indexes each S3 key exactly once, so a re-copy would never be
+        # re-indexed; this also makes redeliveries and replays idempotent.
+        if check_s3_object_exists(s3_client, target_bucket, target_key):
+            if delete_source:
+                blob.delete()
+            return {'status': 'already_exists', 'object': target_key}
 
         # Determine content type based on file extension
         if object_name.endswith('.jsonl') or object_name.endswith('.ndjson'):
@@ -247,6 +293,9 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
         # Get content encoding
         gcs_content_encoding = blob.content_encoding
         was_gzipped = gcs_content_encoding == 'gzip' if gcs_content_encoding else False
+        already_compressed_file = (
+            not was_gzipped and object_name.lower().endswith(ALREADY_COMPRESSED_EXTENSIONS)
+        )
         source_size = blob.size
 
         # If already gzipped in GCS, stream the raw compressed bytes
@@ -255,7 +304,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                 s3_client.upload_fileobj(
                     gcs_stream,
                     target_bucket,
-                    object_name,
+                    target_key,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
                         'ContentType': content_type,
@@ -268,6 +317,26 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                     }
                 )
                 output_size = gcs_stream.bytes_written
+        elif already_compressed_file:
+            # File extension indicates it's already compressed (e.g. raw .gz logs
+            # in a customer bucket) - copy the bytes verbatim without gzip
+            # re-compression or a ContentEncoding header
+            with blob.open('rb') as gcs_stream:
+                s3_client.upload_fileobj(
+                    gcs_stream,
+                    target_bucket,
+                    target_key,
+                    ExtraArgs={
+                        'ContentType': content_type,
+                        'Metadata': {
+                            'source-bucket': blob.bucket.name,
+                            'source-size': str(blob.size),
+                            'original-encoding': gcs_content_encoding or 'none',
+                            'transferred-by': transferred_by
+                        }
+                    }
+                )
+                output_size = source_size
         else:
             # Stream and compress on-the-fly using zlib
             with blob.open('rb') as gcs_stream:
@@ -275,7 +344,7 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                 s3_client.upload_fileobj(
                     compressed_stream,
                     target_bucket,
-                    object_name,
+                    target_key,
                     ExtraArgs={
                         'ContentEncoding': 'gzip',
                         'ContentType': content_type,
@@ -289,12 +358,13 @@ def transfer_blob_to_s3(blob, s3_client, target_bucket, transferred_by='unknown'
                 )
                 output_size = compressed_stream.bytes_written
 
-        # Delete from GCS after successful upload
-        blob.delete()
+        # Delete from GCS after successful upload (skipped for mirror pipelines)
+        if delete_source:
+            blob.delete()
 
         return {
             'status': 'success',
-            'object': object_name,
+            'object': target_key,
             'gzip_input': was_gzipped,
             'input_size': source_size,
             'output_size': output_size,

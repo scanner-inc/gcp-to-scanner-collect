@@ -5,15 +5,15 @@ locals {
   using_existing_bucket = var.existing_s3_bucket_name != ""
 
   # Computed resource names - use override if provided, otherwise use sensible default based on var.name
-  gcs_temp_bucket_name      = var.gcs_temp_bucket_name != "" ? var.gcs_temp_bucket_name : "${var.name}-temp-${var.project_id}-${random_id.suffix.hex}"
-  pubsub_topic_id           = var.pubsub_topic_id != "" ? var.pubsub_topic_id : "${var.name}-export-topic-${random_id.suffix.hex}"
-  pubsub_subscription_id    = var.pubsub_subscription_id != "" ? var.pubsub_subscription_id : "${var.name}-to-gcs-subscription-${random_id.suffix.hex}"
-  logging_sink_id           = var.logging_sink_id != "" ? var.logging_sink_id : "${var.name}-export-to-s3-${random_id.suffix.hex}"
-  service_account_id        = var.service_account_id != "" ? var.service_account_id : "${var.name}-sa-${random_id.suffix.hex}"
-  transfer_function_name    = var.transfer_function_name != "" ? var.transfer_function_name : "${var.name}-transfer-${random_id.suffix.hex}"
-  cleanup_function_name     = var.cleanup_function_name != "" ? var.cleanup_function_name : "${var.name}-cleanup-${random_id.suffix.hex}"
-  scheduler_job_name        = var.scheduler_job_name != "" ? var.scheduler_job_name : "${var.name}-cleanup-scheduler-${random_id.suffix.hex}"
-  aws_role_name             = var.aws_role_name != "" ? var.aws_role_name : "gcp-${var.name}-s3-writer-${random_id.suffix.hex}"
+  gcs_temp_bucket_name   = var.gcs_temp_bucket_name != "" ? var.gcs_temp_bucket_name : "${var.name}-temp-${var.project_id}-${random_id.suffix.hex}"
+  pubsub_topic_id        = var.pubsub_topic_id != "" ? var.pubsub_topic_id : "${var.name}-export-topic-${random_id.suffix.hex}"
+  pubsub_subscription_id = var.pubsub_subscription_id != "" ? var.pubsub_subscription_id : "${var.name}-to-gcs-subscription-${random_id.suffix.hex}"
+  logging_sink_id        = var.logging_sink_id != "" ? var.logging_sink_id : "${var.name}-export-to-s3-${random_id.suffix.hex}"
+  service_account_id     = var.service_account_id != "" ? var.service_account_id : "${var.name}-sa-${random_id.suffix.hex}"
+  transfer_function_name = var.transfer_function_name != "" ? var.transfer_function_name : "${var.name}-transfer-${random_id.suffix.hex}"
+  cleanup_function_name  = var.cleanup_function_name != "" ? var.cleanup_function_name : "${var.name}-cleanup-${random_id.suffix.hex}"
+  scheduler_job_name     = var.scheduler_job_name != "" ? var.scheduler_job_name : "${var.name}-cleanup-scheduler-${random_id.suffix.hex}"
+  aws_role_name          = var.aws_role_name != "" ? var.aws_role_name : "gcp-${var.name}-s3-writer-${random_id.suffix.hex}"
 }
 
 # Validate GCP project exists and is accessible
@@ -26,29 +26,25 @@ data "aws_caller_identity" "current" {}
 
 locals {
   gcp_project_number = data.google_project.current.number
-
-  # Validate AWS account ID matches
-  aws_account_mismatch_error = data.aws_caller_identity.current.account_id != var.aws_account_id ? file(<<-EOT
-
-    ╔═══════════════════════════════════════════════════════════════════════╗
-    ║                    AWS ACCOUNT ID MISMATCH ERROR                      ║
-    ╚═══════════════════════════════════════════════════════════════════════╝
-
-    Configured in tfvars: ${var.aws_account_id}
-    Active AWS account:   ${data.aws_caller_identity.current.account_id}
-
-    Please either:
-      1. Update aws_account_id in terraform.tfvars to match your active AWS account
-      2. Switch to the correct AWS profile using 'aws_profile' variable
-      3. Set AWS_PROFILE environment variable
-
-  EOT
-  ) : null
 }
 
 # Random suffix for unique naming
+# Also carries the AWS account sanity check (preconditions halt the plan with
+# a readable message, unlike an unreferenced local)
 resource "random_id" "suffix" {
   byte_length = 4
+
+  lifecycle {
+    precondition {
+      condition     = data.aws_caller_identity.current.account_id == var.aws_account_id
+      error_message = <<-EOT
+        AWS account ID mismatch: aws_account_id is set to ${var.aws_account_id} but the
+        active AWS credentials belong to account ${data.aws_caller_identity.current.account_id}.
+        Update aws_account_id in terraform.tfvars, or switch credentials via the
+        aws_profile variable / AWS_PROFILE environment variable.
+      EOT
+    }
+  }
 }
 
 # ============== GCP Resources ==============
@@ -238,12 +234,12 @@ resource "google_cloudfunctions2_function" "cleanup_function" {
     timeout_seconds    = 540
 
     environment_variables = {
-      AWS_ROLE_ARN           = aws_iam_role.s3_writer_role.arn
-      AWS_REGION             = var.aws_region
-      TARGET_BUCKET          = local.target_bucket_name
-      TEMP_BUCKET            = google_storage_bucket.temp_bucket.name
-      GCP_PROJECT            = var.project_id
-      AGE_THRESHOLD_MINUTES  = var.age_threshold_minutes
+      AWS_ROLE_ARN          = aws_iam_role.s3_writer_role.arn
+      AWS_REGION            = var.aws_region
+      TARGET_BUCKET         = local.target_bucket_name
+      TEMP_BUCKET           = google_storage_bucket.temp_bucket.name
+      GCP_PROJECT           = var.project_id
+      AGE_THRESHOLD_MINUTES = var.age_threshold_minutes
     }
 
     service_account_email = google_service_account.function_sa.email
@@ -325,6 +321,35 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_enc
   }
 }
 
+# S3 Bucket Lifecycle (optional, only for created bucket)
+# Set s3_expiration_days > 0 to expire log objects; off by default.
+resource "aws_s3_bucket_lifecycle_configuration" "target_bucket_lifecycle" {
+  count  = !local.using_existing_bucket && var.s3_expiration_days > 0 ? 1 : 0
+  bucket = aws_s3_bucket.target_bucket[0].id
+
+  rule {
+    id     = "expire-log-objects"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      days = var.s3_expiration_days
+    }
+
+    # The bucket is versioned; clean up noncurrent versions shortly after expiry
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
+
+  depends_on = [aws_s3_bucket_versioning.target_bucket_versioning]
+}
+
 # S3 Bucket Notification Configuration (only for created bucket with scanner integration)
 resource "aws_s3_bucket_notification" "scanner_notification" {
   count  = !local.using_existing_bucket && local.scanner_sns_provided ? 1 : 0
@@ -357,8 +382,8 @@ resource "aws_iam_role" "s3_writer_role" {
         Action = "sts:AssumeRoleWithWebIdentity"
         Condition = {
           StringEquals = {
-            "accounts.google.com:sub" = google_service_account.function_sa.unique_id
-            "accounts.google.com:aud" = google_service_account.function_sa.unique_id
+            "accounts.google.com:sub"  = google_service_account.function_sa.unique_id
+            "accounts.google.com:aud"  = google_service_account.function_sa.unique_id
             "accounts.google.com:oaud" = "arn:aws:iam::${var.aws_account_id}:role/${local.aws_role_name}"
           }
         }

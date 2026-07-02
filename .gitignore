@@ -6,7 +6,14 @@ terraform.tfstate
 terraform.tfstate.backup
 modules/shared-gcp-resources/cleanup_function.zip
 modules/shared-gcp-resources/transfer_function.zip
+modules/shared-gcp-resources/mirror_function.zip
 modules/shared-gcp-resources/function_source/__pycache__/
+
+# Integration tests: env-specific values and local state stay out of the repo
+tests/integration/env.tfvars
+tests/integration/.venv/
+tests/integration/**/__pycache__/
+tests/integration/.pytest_cache/
 
 # Test file for development
 test.tf

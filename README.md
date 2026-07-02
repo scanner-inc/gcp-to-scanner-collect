@@ -44,10 +44,11 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 - **Scanner Integration**: Optional configuration to automatically set up S3 notifications and IAM policies for security scanner integration
 - **Efficient Compression**: Automatically handles gzip compression for log files during transfer
 - **Automatic Cleanup**: Retry mechanism for failed transfers via scheduled Cloud Function
+- **GCS Bucket Mirroring**: Optionally mirror new objects from existing GCS buckets to S3, with key path filtering - see [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets)
 
 ## Prerequisites
 
-- Terraform >= 1.0
+- Terraform >= 1.9
 - Google Cloud SDK (`gcloud`)
 - AWS CLI (`aws`)
 - Active GCP project with billing enabled
@@ -94,6 +95,7 @@ Then uncomment one or more pipeline module configurations:
 - **Multiple pipelines** (`audit_logs_pipeline`, `k8s_logs_pipeline`, etc.): Separates different log types into different S3 buckets
 - **Existing S3 bucket** (`logs_to_existing_bucket`): Uses a pre-existing S3 bucket
 - **Custom resource names** (`custom_names_pipeline`): Shows all resources and how to override their names
+- **GCS bucket mirror** (`raw_logs_mirror`): Copies new objects from an existing GCS bucket to S3 - works standalone or alongside log pipelines (see [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets))
 
 Each pipeline module requires:
 - `name`: Unique identifier for this pipeline (prefixes all per-pipeline resources)
@@ -117,6 +119,8 @@ Each pipeline module instance supports:
 - `existing_s3_bucket_name`: Use an existing S3 bucket (must also set `log_prefix`)
 - Neither: Auto-generates bucket name as `{name}-s3-target-{account_id}-{random_suffix}`
 
+Created buckets retain logs indefinitely by default; set `s3_expiration_days` to expire log objects after N days. Not applied to existing buckets.
+
 **Scanner Integration (optional):**
 - `scanner_sns_topic_arn`: SNS topic ARN for S3 event notifications
 - `scanner_role_arn`: IAM role ARN to grant S3 read permissions
@@ -125,6 +129,7 @@ Each pipeline module instance supports:
 **Other Options:**
 - `log_filter`: Filter Cloud Logging entries
 - `log_prefix`: Path prefix for organizing logs in S3 (default: `gcp/all`, examples: `gcp/audit`, `gcp/k8s`, `gcp/cloudrun`)
+- `s3_expiration_days`: Optional days before log objects expire from the created S3 bucket (default: `0` = keep forever)
 - `max_batch_duration_seconds`: Maximum duration before flushing batched logs to GCS (default: `120`, range: 60-600 seconds). Trade-off: lower values = more live logs but more files, higher values = fewer files but more delay
 - `force_destroy_buckets`: Allow deleting non-empty buckets (default: `false`)
 - `age_threshold_minutes`: Age threshold for cleanup function (default: `30`)
@@ -141,6 +146,85 @@ Each pipeline module instance supports:
 - `aws_role_name`: Override AWS IAM role name
 
 Note: The function source bucket is shared across all pipelines and managed by the `shared_gcp_resources` module.
+
+## GCS Bucket Mirroring (Index Raw Logs from Your GCS Buckets)
+
+The `gcs-bucket-to-s3-pipeline` module points Scanner at raw logs that already land in your own GCS buckets: each new object whose key passes the configured filters is copied to a Collect S3 bucket that Scanner indexes. **Objects are never deleted from your source GCS bucket.**
+
+```
+┌──────────────┐   notification   ┌──────────────┐   push (retry    ┌──────────────────┐      ┌──────────────┐
+│  Your GCS    │ ───────────────► │   Pub/Sub    │ ───w/ backoff)─► │ Cloud Function   │ ───► │  S3 Bucket   │
+│  Bucket      │  OBJECT_FINALIZE │    Topic     │                  │ (key filter +    │      │  (Collect,   │
+│  (existing)  │  (prefix-scoped) │              │                  │  copy, no delete)│      │ optional TTL)│
+└──────────────┘                  └──────────────┘                  └──────────────────┘      └──────────────┘
+                                         │ after N failed deliveries
+                                         ▼
+                                  ┌──────────────┐      ┌──────────────────────┐
+                                  │ Dead-letter  │ ───► │  Monitoring alert    │
+                                  │ queue (7d)   │      │  (+ optional email)  │
+                                  └──────────────┘      └──────────────────────┘
+```
+
+The function only acknowledges a notification after the object is safely in S3 (or known to be skippable), so transient failures are redelivered by Pub/Sub with exponential backoff for up to 7 days. A notification that exhausts its delivery attempts lands in a dead-letter queue and fires a monitoring alert; after fixing the cause you can replay the affected objects (each DLQ message names one object; replays are idempotent).
+
+Deploy one module instance per monitored GCS bucket. See the commented `raw_logs_mirror` examples in `main.tf`.
+
+**Mirror-only deployment**: the mirroring and Cloud Logging export pipelines are independent. To deploy only mirroring, keep the `shared_gcp_resources` module and uncomment just a `gcs-bucket-to-s3-pipeline` instance; leave all `cloud-logging-to-s3-pipeline` modules commented out.
+
+**Coexists with your existing bucket notifications**: the module's notification configs are purely additive - anything you already have wired to the bucket is untouched.
+
+**First write wins**: each object key is copied to S3 once; overwrites under the same key are intentionally not re-copied, since Scanner indexes each S3 key exactly once. Log writers that need every revision indexed should write new keys (e.g., timestamped names).
+
+### Configuration
+
+**Required:**
+- `name`: Unique identifier for this mirror pipeline (same rules as other pipelines)
+- `shared_gcp_resources`: Pass `module.shared_gcp_resources.all`
+- `gcs_bucket_name`: The existing GCS bucket to monitor
+
+**Key Path Filtering (optional, all configured filters must pass):**
+- `key_prefixes`: Only copy objects whose key starts with one of these prefixes (e.g., `["logs/"]`). Filtered server-side via per-prefix notification configs.
+- `key_include_regex`: Only copy keys matching this regex (Python `re.search` syntax, e.g., `"\\.json(\\.gz)?$"`)
+- `key_exclude_regex`: Skip keys matching this regex (e.g., `"\\.tmp$"`)
+
+**S3 Destination (same flexible targeting as log pipelines):**
+- `s3_bucket_name`: Create a new bucket with a custom name
+- `existing_s3_bucket_name`: Use an existing S3 bucket
+- Neither: Auto-generates bucket name as `{name}-s3-target-{account_id}-{random_suffix}`
+- `s3_key_prefix`: Prefix prepended to object keys in S3 (e.g., `gcs/raw-logs`)
+- `s3_expiration_days`: Days before mirrored objects expire from the created S3 bucket (default: `0` = keep forever; originals remain in GCS). Not applied to existing buckets.
+
+**Scanner Integration (optional, created buckets only):**
+- `scanner_sns_topic_arn` + `scanner_role_arn`: Same as the log pipelines
+
+**Reliability & Alerting:**
+- `alert_email`: Optional email notified when notifications land in the dead-letter queue (the alert policy is created either way)
+- `dlq_max_delivery_attempts`: Delivery attempts before dead-lettering (default: `20`, backoff 10s–600s)
+- `max_function_instances`: Max concurrent mirror function instances (default: `100`)
+
+### Replaying Dead-Lettered Objects
+
+If the DLQ alert fires, fix the underlying cause (see the function's logs), then replay. The function skips objects already in S3, so replays are safe:
+
+```bash
+# Inspect what failed
+gcloud pubsub subscriptions pull [DLQ_SUBSCRIPTION] --limit=10 --format="value(message.attributes.objectId)"
+
+# Replay: pull each message and republish its payload to the main topic
+gcloud pubsub subscriptions pull [DLQ_SUBSCRIPTION] --auto-ack --limit=100 \
+  --format="value(message.data)" | while read -r data; do
+    gcloud pubsub topics publish [MIRROR_TOPIC] --message="$(echo "$data" | base64 -d)" \
+      --attribute=eventType=OBJECT_FINALIZE
+  done
+```
+
+(`[DLQ_SUBSCRIPTION]` and `[MIRROR_TOPIC]` are in the module outputs.)
+
+### Compression Behavior
+
+- Objects already stored with `Content-Encoding: gzip` are streamed to S3 as-is
+- Objects whose names indicate they're already compressed (`.gz`, `.zip`, `.bz2`, `.zst`, `.snappy`, `.parquet`) are copied byte-for-byte without re-compression
+- Everything else is gzip-compressed on the fly during transfer
 
 ### 3. Initialize Terraform
 
@@ -176,9 +260,14 @@ terraform apply
     │   └── function_source/           # Cloud Function code (shared across pipelines)
     │       ├── transfer_function.py
     │       ├── cleanup_function.py
+    │       ├── mirror_function.py
     │       ├── shared.py
     │       └── requirements.txt
-    └── gcp-to-s3-pipeline/            # Reusable pipeline module (one per log type)
+    ├── cloud-logging-to-s3-pipeline/            # Reusable pipeline module (one per log type)
+    │   ├── main.tf                    # Per-pipeline resources
+    │   ├── variables.tf               # Module variables
+    │   └── outputs.tf                 # Module outputs
+    └── gcs-bucket-to-s3-pipeline/     # GCS bucket mirror module (one per monitored bucket)
         ├── main.tf                    # Per-pipeline resources
         ├── variables.tf               # Module variables
         └── outputs.tf                 # Module outputs
@@ -195,6 +284,8 @@ Once deployed, the pipeline works automatically:
 5. **Cleanup function** retries any stale files (>1 hour old) every 30 minutes
 
 Expected latency: **2-3 minutes** from log generation to S3 availability (with default 2-minute batching interval).
+
+Note: newly-created Cloud Logging sinks take a few minutes to propagate across Google's Log Router, so log entries written shortly after `terraform apply` may not be exported. Long-lived sinks are unaffected.
 
 ## Testing
 
@@ -283,7 +374,7 @@ After successful deployment, each module provides outputs including:
 - `service_account_email`: Service account email
 - `test_instructions`: Quick testing commands and verification steps
 
-See `modules/gcp-to-s3-pipeline/outputs.tf` for the complete list.
+See `modules/cloud-logging-to-s3-pipeline/outputs.tf` for the complete list.
 
 ## Cleanup
 

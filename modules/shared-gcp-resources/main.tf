@@ -63,6 +63,13 @@ resource "google_project_service" "eventarc" {
   disable_on_destroy         = false
 }
 
+resource "google_project_service" "monitoring" {
+  project                    = var.project_id
+  service                    = "monitoring.googleapis.com"
+  disable_dependent_services = false
+  disable_on_destroy         = false
+}
+
 # ============== GCS Service Account for Eventarc ==============
 # Project-level service account used by all pipelines
 
@@ -130,6 +137,26 @@ data "archive_file" "cleanup_function_source" {
   }
 }
 
+data "archive_file" "mirror_function_source" {
+  type        = "zip"
+  output_path = "${path.module}/mirror_function.zip"
+
+  source {
+    content  = file("${path.module}/function_source/mirror_function.py")
+    filename = "main.py"
+  }
+
+  source {
+    content  = file("${path.module}/function_source/shared.py")
+    filename = "shared.py"
+  }
+
+  source {
+    content  = file("${path.module}/function_source/requirements.txt")
+    filename = "requirements.txt"
+  }
+}
+
 # Upload transfer function source to GCS
 resource "google_storage_bucket_object" "transfer_function_source" {
   name   = "transfer-function-${data.archive_file.transfer_function_source.output_md5}.zip"
@@ -142,4 +169,11 @@ resource "google_storage_bucket_object" "cleanup_function_source" {
   name   = "cleanup-function-${data.archive_file.cleanup_function_source.output_md5}.zip"
   bucket = google_storage_bucket.function_source.name
   source = data.archive_file.cleanup_function_source.output_path
+}
+
+# Upload mirror function source to GCS
+resource "google_storage_bucket_object" "mirror_function_source" {
+  name   = "mirror-function-${data.archive_file.mirror_function_source.output_md5}.zip"
+  bucket = google_storage_bucket.function_source.name
+  source = data.archive_file.mirror_function_source.output_path
 }

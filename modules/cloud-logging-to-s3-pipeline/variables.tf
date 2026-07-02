@@ -16,6 +16,7 @@ variable "shared_gcp_resources" {
     source_bucket             = string
     transfer_object           = string
     cleanup_object            = string
+    mirror_object             = string
     gcs_service_account_email = string
     enabled_apis              = list(string)
   })
@@ -112,6 +113,17 @@ variable "existing_s3_bucket_name" {
   validation {
     condition     = var.existing_s3_bucket_name == "" || var.log_prefix != ""
     error_message = "When using an existing S3 bucket, you must specify a log_prefix to namespace your logs within the bucket."
+  }
+}
+
+variable "s3_expiration_days" {
+  description = "Days after which log objects expire from the created S3 bucket. 0 = retain indefinitely. Ignored for existing buckets."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.s3_expiration_days >= 0
+    error_message = "s3_expiration_days must be 0 (infinite retention) or a positive number of days."
   }
 }
 
