@@ -157,9 +157,9 @@ variable "existing_s3_bucket_name" {
 }
 
 variable "s3_expiration_days" {
-  description = "Days after which mirrored objects expire from the created S3 bucket (originals stay in GCS). 0 = retain indefinitely. Ignored for existing buckets."
+  description = "Days after which mirrored objects expire from the created S3 bucket (originals stay in GCS). Defaults to 7: the mirrored copy is a short-lived buffer for Scanner to index, not a permanent duplicate of your GCS data. Set 0 to retain indefinitely. Ignored for existing buckets."
   type        = number
-  default     = 0
+  default     = 7
 
   validation {
     condition     = var.s3_expiration_days >= 0

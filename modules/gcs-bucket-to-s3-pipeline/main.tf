@@ -315,8 +315,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "target_bucket_enc
   }
 }
 
-# S3 Bucket Lifecycle (optional, only for created bucket)
-# Set s3_expiration_days > 0 to expire mirrored objects; off by default.
+# S3 Bucket Lifecycle (only for created bucket)
+# Mirrored objects expire after s3_expiration_days (default 7); set 0 to keep them indefinitely.
 resource "aws_s3_bucket_lifecycle_configuration" "target_bucket_lifecycle" {
   count  = !local.using_existing_bucket && var.s3_expiration_days > 0 ? 1 : 0
   bucket = aws_s3_bucket.target_bucket[0].id

@@ -1,12 +1,15 @@
-# GCP Logging to S3 Pipeline
+# GCP to S3 Log Collection Pipelines
 
-Automated pipeline that exports GCP Cloud Logging logs to Amazon S3 with configurable latency (default 2-3 minutes). Logs are batched in GCS temporarily, then transferred to S3 with efficient compression handling.
+Terraform for getting GCP log data into an Amazon S3 "Collect" bucket that Scanner indexes. The project deploys **two independent pipelines**; use either on its own or both together:
 
-## Overview
+1. **Cloud Logging → S3**: streams live GCP logs to S3 with configurable latency (default 2-3 minutes). A Cloud Logging sink writes to Pub/Sub, a push subscription batches entries into GCS, and a Cloud Function transfers them to S3 with efficient compression handling. A secondary cleanup function runs every 30 minutes to retry any failed transfers. Implemented by the `cloud-logging-to-s3-pipeline` module.
+2. **GCS bucket → S3 mirror**: copies new objects that land in your *existing* GCS buckets to S3 as they arrive (originals are never deleted). Implemented by the `gcs-bucket-to-s3-pipeline` module; see [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets).
 
-This project deploys a serverless architecture that streams GCP logs to S3 via Pub/Sub and GCS. Logs are written to Pub/Sub by a Cloud Logging sink, batched into GCS by a push subscription, then transferred to S3 by a Cloud Function. A secondary cleanup function runs every 30 minutes to handle any failed transfers.
+Both pipelines share a single `shared-gcp-resources` module (API enablements, function source bucket, etc.) that only needs to be deployed once per GCP project.
 
 ## Architecture
+
+### Cloud Logging Pipeline
 
 ```
 ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐      ┌──────────────┐
@@ -28,7 +31,7 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
                                                               └──────────────────┘
 ```
 
-### Key Components
+#### Key Components
 
 - **Cloud Logging Sink**: Routes all logs (or filtered logs) to Pub/Sub topic
 - **Pub/Sub Topic + Push Subscription**: Batches log entries and writes to GCS
@@ -38,13 +41,15 @@ This project deploys a serverless architecture that streams GCP logs to S3 via P
 - **Workload Identity Federation**: Uses OIDC/JWT tokens from GCP metadata server to assume AWS role (no credentials required)
 - **S3 Target Bucket**: Final destination for compressed log files with versioning and encryption
 
+> The second pipeline (mirroring existing GCS buckets to S3) has its own architecture diagram in [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets) below.
+
 ## Features
 
 - **Flexible S3 Configuration**: Create a new S3 bucket with a custom name, use an existing bucket, or let Terraform auto-generate a bucket name
 - **Scanner Integration**: Optional configuration to automatically set up S3 notifications and IAM policies for security scanner integration
 - **Efficient Compression**: Automatically handles gzip compression for log files during transfer
 - **Automatic Cleanup**: Retry mechanism for failed transfers via scheduled Cloud Function
-- **GCS Bucket Mirroring**: Optionally mirror new objects from existing GCS buckets to S3, with key path filtering - see [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets)
+- **GCS Bucket Mirroring**: A first-class second pipeline that mirrors new objects from existing GCS buckets to S3, with key path filtering - see [GCS Bucket Mirroring](#gcs-bucket-mirroring-index-raw-logs-from-your-gcs-buckets)
 
 ## Prerequisites
 
@@ -149,7 +154,7 @@ Note: The function source bucket is shared across all pipelines and managed by t
 
 ## GCS Bucket Mirroring (Index Raw Logs from Your GCS Buckets)
 
-The `gcs-bucket-to-s3-pipeline` module points Scanner at raw logs that already land in your own GCS buckets: each new object whose key passes the configured filters is copied to a Collect S3 bucket that Scanner indexes. **Objects are never deleted from your source GCS bucket.**
+The `gcs-bucket-to-s3-pipeline` module points Scanner at raw logs that already land in your own GCS buckets: each new object whose key passes the configured filters is copied to a Collect S3 bucket that Scanner indexes. **Objects are never deleted from your source GCS bucket.** For buckets this module creates, the mirrored copy in S3 expires after 7 days by default, so it acts as a short-lived buffer rather than a permanent duplicate of your GCS data (see [Cost and retention](#cost-and-retention)).
 
 ```
 ┌──────────────┐   notification   ┌──────────────┐   push (retry    ┌──────────────────┐      ┌──────────────┐
@@ -175,6 +180,14 @@ Deploy one module instance per monitored GCS bucket. See the commented `raw_logs
 
 **First write wins**: each object key is copied to S3 once; overwrites under the same key are intentionally not re-copied, since Scanner indexes each S3 key exactly once. Log writers that need every revision indexed should write new keys (e.g., timestamped names).
 
+### Cost and retention
+
+**Retention.** For buckets this module creates, mirrored objects expire from S3 after 7 days by default (`s3_expiration_days`), so S3 is a temporary buffer for Scanner to index rather than a permanent copy of your GCS data. Set `s3_expiration_days = 0` to keep objects indefinitely, or point the pipeline at an existing bucket and manage its lifecycle yourself. Source objects in GCS are never touched.
+
+**Transfer cost.** Logs move compressed, so throughput is smaller than it looks: 1 TB/day of raw logs is roughly 100 GB/day compressed. GCS egress runs about $0.12/GB (less at higher volume) and S3 ingestion is free, so 100 GB/day works out to roughly $12/day (about $360/month, $4,300/year).
+
+**Storage cost.** With the default 7-day retention, the mirror bucket never holds more than about 700 GB (100 GB/day for 7 days) at 1 TB/day of raw logs. At S3 Standard rates (about $0.023/GB per month), that steady state is roughly $16/month (about $0.50/day, $190/year). Because objects expire, storage stays flat rather than growing forever.
+
 ### Configuration
 
 **Required:**
@@ -192,7 +205,7 @@ Deploy one module instance per monitored GCS bucket. See the commented `raw_logs
 - `existing_s3_bucket_name`: Use an existing S3 bucket
 - Neither: Auto-generates bucket name as `{name}-s3-target-{account_id}-{random_suffix}`
 - `s3_key_prefix`: Prefix prepended to object keys in S3 (e.g., `gcs/raw-logs`)
-- `s3_expiration_days`: Days before mirrored objects expire from the created S3 bucket (default: `0` = keep forever; originals remain in GCS). Not applied to existing buckets.
+- `s3_expiration_days`: Days before mirrored objects expire from the created S3 bucket (default: `7`; set `0` to keep forever; originals remain in GCS). Not applied to existing buckets.
 
 **Scanner Integration (optional, created buckets only):**
 - `scanner_sns_topic_arn` + `scanner_role_arn`: Same as the log pipelines

@@ -136,7 +136,9 @@ module "shared_gcp_resources" {
 #
 #   # s3_bucket_name = "mycompany-gcs-raw-logs-mirror"  # optional custom name
 #
-#   # Optional: expire mirrored objects from the created S3 bucket after N days
+#   # Mirrored objects in the created S3 bucket expire after 7 days by default
+#   # (S3 is a buffer, not a permanent copy). Override the retention window,
+#   # or set 0 to keep objects indefinitely.
 #   # s3_expiration_days = 7
 #
 #   # Optional: email alerts when objects land in the dead-letter queue
